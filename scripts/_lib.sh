@@ -7,11 +7,39 @@ set -euo pipefail
 HMS_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export HMS_ROOT
 
-# Local dev runs Docker through colima on macOS. Set DOCKER_HOST so anything
-# that shells out to `docker` (testcontainers included) hits the right socket.
-if [[ -z "${DOCKER_HOST:-}" ]] && [[ -S "$HOME/.colima/default/docker.sock" ]]; then
-  export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+# Point DOCKER_HOST at the right socket for anything that shells out to
+# `docker` (testcontainers included), unless the caller already set it.
+#   - macOS: colima's socket.
+#   - Linux: rootless Docker's per-user socket under $XDG_RUNTIME_DIR.
+# HMS_OS + DATAPRO_OS_COMPOSE (below) are also derived here so every dev
+# script picks the same per-OS defaults.
+HMS_OS="$(uname -s)"
+export HMS_OS
+if [[ -z "${DOCKER_HOST:-}" ]]; then
+  case "$HMS_OS" in
+    Darwin)
+      [[ -S "$HOME/.colima/default/docker.sock" ]] &&
+        export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+      ;;
+    Linux)
+      # Rootless Docker publishes its socket here; only adopt it if present
+      # so hosts running rootful Docker (default /var/run socket) are untouched.
+      rootless_sock="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/docker.sock"
+      [[ -S "$rootless_sock" ]] &&
+        export DOCKER_HOST="unix://$rootless_sock"
+      ;;
+  esac
 fi
+
+# The datapro compose stack needs per-OS host bind mounts for flex modules
+# (the flex Python worker runs inside the Trino container and can only read
+# files that are mounted in). The base compose file is host-agnostic; the
+# mounts live in an OS-specific overlay that dev-up.sh layers on with -f.
+case "$HMS_OS" in
+  Darwin) export DATAPRO_OS_COMPOSE="docker-compose.macos.yml" ;;
+  Linux)  export DATAPRO_OS_COMPOSE="docker-compose.linux.yml" ;;
+  *)      export DATAPRO_OS_COMPOSE="" ;;
+esac
 
 # Make sure uv is on PATH for non-login shells.
 if ! command -v uv >/dev/null 2>&1; then
@@ -25,6 +53,10 @@ fi
 export CORE_PORT="${CORE_PORT:-5001}"
 export AI_PORT="${AI_PORT:-5002}"
 export UI_PORT="${UI_PORT:-5174}"
+# Published host port for Trino. The container always listens on 8080
+# internally; this only changes what host port it's mapped to (override on
+# shared hosts where 8080 is taken). Core reads TRINO_PORT from its own env.
+export TRINO_PORT="${TRINO_PORT:-8080}"
 export CORE_URL="${CORE_URL:-http://127.0.0.1:${CORE_PORT}}"
 export AI_URL="${AI_URL:-http://127.0.0.1:${AI_PORT}}"
 

@@ -1,0 +1,18 @@
+# Linux host-filesystem overlay for the flex worker.
+#
+# Layered on the base compose by scripts/dev-up.sh (via DATAPRO_OS_COMPOSE in
+# scripts/_lib.sh) when running on Linux. The flex Python worker runs INSIDE
+# the Trino container, so it can only read host files that are mounted in. We
+# mount the data-bearing roots at the SAME paths so flex modules can reference
+# real host paths transparently (e.g. /home/you/data/foo.csv).
+#
+#   /home  — user home directories (where dev data typically lives)
+#   /tmp   — scratch / generated data
+# Add more roots for your host by creating a gitignored docker-compose.override.yml
+# alongside this file (compose auto-merges it) rather than editing this one.
+# Read-only — flex is a data source, not a writer.
+services:
+  trino:
+    volumes:
+      - /home:/home:ro
+      - /tmp:/tmp:ro

@@ -1,0 +1,22 @@
+# macOS host-filesystem overlay for the flex worker.
+#
+# Layered on the base compose by scripts/dev-up.sh (via DATAPRO_OS_COMPOSE in
+# scripts/_lib.sh) when running on Darwin. The flex Python worker runs INSIDE
+# the Trino container, so it can only read host files that are mounted in. We
+# mount colima's virtiofs-exposed macOS roots at the SAME paths so flex modules
+# can reference real host paths transparently (e.g. /Users/you/data/foo.csv).
+#
+# These three are everything colima's virtiofs exposes from macOS:
+#   /Users    — all user data (home dirs)
+#   /Volumes  — external / mounted drives
+#   /private  — macOS temp + /private/var (where /tmp resolves)
+# /System and /Applications aren't exposed by colima's defaults; add them to
+# colima's `mounts:` + `colima restart` if you ever need them.
+# Read-only — flex is a data source, not a writer. colima's mountInotify
+# propagates edits, so flex reads the live file each query.
+services:
+  trino:
+    volumes:
+      - /Users:/Users:ro
+      - /Volumes:/Volumes:ro
+      - /private:/private:ro

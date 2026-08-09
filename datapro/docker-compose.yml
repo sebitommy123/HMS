@@ -11,31 +11,24 @@ services:
       dockerfile: datapro/trino-flex/Dockerfile
     container_name: hms-trino
     ports:
-      - "8080:8080"
+      # Container always listens on 8080; TRINO_PORT only changes the host
+      # mapping (set by scripts/_lib.sh, override on hosts where 8080 is taken).
+      - "${TRINO_PORT:-8080}:8080"
     volumes:
       - ./trino/etc/config.properties:/etc/trino/config.properties:ro
       # Bind-mount for hand-authored flex modules during dev. Phase B
       # will move modules into Core's Postgres and materialize them to
       # this same path (versioned by hash).
       - ./flex-modules:/var/datapro-flex:ro
-      # Read-only host filesystem access for flex modules. The flex Python
-      # worker runs INSIDE this container, so without a mount it can't see
-      # files on the Mac (unlike DB connectors, which reach out over the
-      # network). We mount the macOS data-bearing roots at the SAME paths so
-      # modules can reference real host paths transparently
-      # (e.g. /Users/you/data/foo.csv, /Volumes/drive/…).
-      #
-      # These three are everything colima's virtiofs exposes from macOS:
-      #   /Users    — all user data (home dirs)
-      #   /Volumes  — external / mounted drives
-      #   /private  — macOS temp + /private/var (where /tmp resolves)
-      # /System and /Applications aren't exposed by colima's defaults; add
-      # them to colima's `mounts:` + `colima restart` if you ever need them.
-      # Read-only — flex is a data source, not a writer. colima's
-      # mountInotify propagates edits, so flex reads the live file each query.
-      - /Users:/Users:ro
-      - /Volumes:/Volumes:ro
-      - /private:/private:ro
+      # NOTE: host filesystem access for flex modules is host-OS-specific and
+      # lives in an overlay, NOT here. The flex Python worker runs INSIDE this
+      # container, so without a mount it can't see files on the host (unlike DB
+      # connectors, which reach out over the network). dev-up.sh layers on the
+      # matching overlay (docker-compose.macos.yml / docker-compose.linux.yml,
+      # selected by DATAPRO_OS_COMPOSE in scripts/_lib.sh), which mounts the
+      # host data-bearing roots at the SAME paths so modules can reference real
+      # host paths transparently (e.g. /Users/you/data/foo.csv). Create a
+      # gitignored docker-compose.override.yml here to add your own mounts.
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/v1/info"]
       interval: 5s

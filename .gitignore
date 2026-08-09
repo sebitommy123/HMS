@@ -26,6 +26,11 @@ ui/dist/
 # ---- Java / Maven ----
 .m2/
 target/
+# Local Maven settings (internal mirror creds / URLs); example is committed.
+flex/connector/maven-settings.xml
+
+# ---- Local dev overrides (host-specific compose tweaks) ----
+datapro/docker-compose.override.yml
 
 # ---- Runtime / generated ----
 .dev-logs/
