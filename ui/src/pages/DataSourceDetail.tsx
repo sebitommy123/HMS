@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link, useParams } from "react-router-dom";
 
 import {
@@ -6,9 +7,12 @@ import {
   getDataSourceColumns,
   type DataSource,
 } from "@/api/dataSources";
+import { executeRawTrinoQuery, type QueryResult } from "@/api/rawTrinoQuery";
 import { ApiError } from "@/api/client";
 import { DataSourceFactoriesPanel } from "@/components/ObjectFactoriesPanel";
 import { relativeTime } from "@/lib/format";
+
+const PREVIEW_LIMIT = 50;
 
 export function DataSourceDetail() {
   const { id = "" } = useParams<{ id: string }>();
@@ -52,6 +56,8 @@ export function DataSourceDetail() {
 
       <ReadOnly row={row} />
 
+      <PreviewSection row={row} />
+
       <ColumnsSection dataSourceId={row.id} />
 
       <DataSourceFactoriesPanel dataSourceId={row.id} />
@@ -82,6 +88,144 @@ function DeletedBanner() {
       will drop this data source automatically.
     </div>
   );
+}
+
+function quoteIdent(s: string): string {
+  // Trino double-quotes identifiers; embedded quotes are escaped by doubling.
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function PreviewSection({ row }: { row: DataSource }) {
+  const sql =
+    `SELECT * FROM ${quoteIdent(row.catalog_name)}.` +
+    `${quoteIdent(row.schema_name)}.${quoteIdent(row.table_name)} ` +
+    `LIMIT ${PREVIEW_LIMIT}`;
+
+  const preview = useMutation({
+    mutationFn: () => executeRawTrinoQuery({ sql, max_rows: PREVIEW_LIMIT }),
+  });
+
+  return (
+    <section data-testid="preview-section">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <h2 className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+          Data preview
+        </h2>
+        <button
+          type="button"
+          onClick={() => preview.mutate()}
+          disabled={preview.isPending}
+          className="rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="preview-run-button"
+        >
+          {preview.isPending
+            ? "Querying…"
+            : preview.data
+              ? "Refresh"
+              : "Run preview"}
+        </button>
+      </div>
+
+      {preview.isIdle ? (
+        <p
+          className="rounded border border-dashed border-zinc-200 p-3 text-sm text-zinc-500"
+          data-testid="preview-idle"
+        >
+          Query the first {PREVIEW_LIMIT} rows straight from Trino.
+        </p>
+      ) : preview.isPending ? (
+        <p className="text-sm text-zinc-500">Querying Trino…</p>
+      ) : preview.isError ? (
+        <PreviewError error={preview.error} />
+      ) : preview.data ? (
+        <PreviewResult result={preview.data} />
+      ) : null}
+
+      <p className="mt-1 text-[10px] text-zinc-400">
+        Raw Trino query against <code className="font-mono">{row.path}</code> — not
+        a Core semantic query.
+      </p>
+    </section>
+  );
+}
+
+function PreviewResult({ result }: { result: QueryResult }) {
+  if (result.columns.length === 0) {
+    return <p className="text-sm text-zinc-500">Query returned no columns.</p>;
+  }
+  return (
+    <div className="space-y-1">
+      <div className="max-h-96 overflow-auto rounded border border-zinc-200 bg-white">
+        <table className="min-w-full text-xs" data-testid="preview-table">
+          <thead className="sticky top-0 z-10 bg-zinc-50 text-left font-medium text-zinc-700">
+            <tr>
+              {result.columns.map((c) => (
+                <th
+                  key={c}
+                  className="whitespace-nowrap border-b border-zinc-200 px-3 py-1.5 font-mono"
+                >
+                  {c}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {result.rows.map((r, i) => (
+              <tr key={i} className="border-t border-zinc-100">
+                {r.map((cell, j) => (
+                  <td
+                    key={j}
+                    className="whitespace-pre px-3 py-1 font-mono text-zinc-800"
+                  >
+                    {renderCell(cell)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-zinc-400">
+        {result.row_count} row{result.row_count === 1 ? "" : "s"}
+        {result.truncated && ` (capped at ${result.applied_limits.max_rows})`} ·{" "}
+        {result.elapsed_seconds.toFixed(2)}s
+      </p>
+    </div>
+  );
+}
+
+function PreviewError({ error }: { error: unknown }) {
+  let title = "Query failed";
+  let detail = "";
+  if (error instanceof ApiError) {
+    const body = (error.body ?? {}) as { error?: string; details?: unknown };
+    title = `Query failed (${body.error ?? `HTTP ${error.status}`})`;
+    detail =
+      typeof body.details === "string"
+        ? body.details
+        : JSON.stringify(body.details ?? "");
+  } else {
+    detail = (error as Error).message ?? String(error);
+  }
+  return (
+    <div
+      className="space-y-1 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-800"
+      data-testid="preview-error"
+    >
+      <div className="font-medium">{title}</div>
+      {detail && (
+        <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs">
+          {detail}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function renderCell(v: unknown): string {
+  if (v === null || v === undefined) return "NULL";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
 }
 
 function ColumnsSection({ dataSourceId }: { dataSourceId: string }) {
