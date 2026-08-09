@@ -5,7 +5,7 @@ name: hms-core
 
 services:
   postgres:
-    image: postgres:16
+    image: docker.io/library/postgres:16
     container_name: hms-core-postgres
     environment:
       POSTGRES_DB: datapro_core

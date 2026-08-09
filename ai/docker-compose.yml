@@ -6,7 +6,7 @@ name: hms-ai
 
 services:
   postgres:
-    image: postgres:16
+    image: docker.io/library/postgres:16
     container_name: hms-ai-postgres
     environment:
       POSTGRES_DB: datapro_ai

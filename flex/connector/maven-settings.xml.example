@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example Maven settings for building the flex connector behind a corporate
+  proxy where repo1.maven.org is blocked.
+
+  To use: copy this file to `maven-settings.xml` in this same directory
+  (it's gitignored) and fill in your internal mirror URL. scripts/dev-up.sh
+  mounts maven-settings.xml into the Maven-in-Docker build automatically when
+  it exists; without it, Maven uses its baked-in Central URL as before.
+
+  Two things this handles:
+    1. <mirror> redirects all repositories at your internal mirror.
+    2. The `maven-default-http-blocker` neutralizer: Maven 3.8+ ships a
+       built-in mirror that BLOCKS every http:// (non-TLS) repository. If your
+       internal mirror is plain HTTP, you must disable that blocker or every
+       download fails with "blocked mirror for repositories". Redefining the
+       blocker id with <blocked>false</blocked> and a harmless mirrorOf turns
+       it off.
+-->
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0
+                              http://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <mirrors>
+    <!-- Point all repositories at your internal mirror. -->
+    <mirror>
+      <id>internal-mirror</id>
+      <name>Corporate Maven mirror</name>
+      <!-- Replace with your Artifactory/Nexus Maven virtual repo URL. -->
+      <url>http://REPLACE-ME/artifactory/maven-virtual</url>
+      <mirrorOf>*</mirrorOf>
+    </mirror>
+
+    <!-- Neutralize Maven 3.8+'s default http blocker so a plain-HTTP mirror
+         (above) is allowed. Harmless if your mirror is HTTPS. -->
+    <mirror>
+      <id>maven-default-http-blocker</id>
+      <mirrorOf>dummy-disabled</mirrorOf>
+      <url>http://0.0.0.0/</url>
+      <blocked>false</blocked>
+    </mirror>
+  </mirrors>
+</settings>

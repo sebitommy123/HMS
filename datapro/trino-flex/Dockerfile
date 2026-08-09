@@ -16,7 +16,19 @@
 
 # ---- stage 1: build the Python venv ------------------------------------
 
-FROM python:3.12-slim AS pybuild
+# Fully-qualified so hosts pulling through a registry proxy (Artifactory's
+# docker-remote, etc.) resolve it the same as a direct Docker Hub pull.
+FROM docker.io/library/python:3.12-slim AS pybuild
+
+# Redirect pip at an internal mirror on networks where pypi.org is blocked.
+# Public defaults are a no-op for everyone else. Pass at build time, e.g.
+#   --build-arg PIP_INDEX_URL=http://host:8081/artifactory/api/pypi/repo/simple
+#   --build-arg PIP_TRUSTED_HOST=host   (needed for plain-HTTP / TLS-intercept mirrors)
+ARG PIP_INDEX_URL=https://pypi.org/simple
+ARG PIP_TRUSTED_HOST=""
+# Exported to ENV so every `pip install` in this stage inherits them.
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST}
 
 # Build the venv at the exact path it will live in the final image so
 # the venv's shebangs + sys.prefix all resolve correctly.
@@ -32,7 +44,7 @@ RUN /opt/flex-venv/bin/pip install --no-cache-dir /tmp/flex-runtime
 
 # ---- stage 2: final Trino image with Python + flex plugin --------------
 
-FROM trinodb/trino:latest
+FROM docker.io/trinodb/trino:latest
 
 USER root
 
