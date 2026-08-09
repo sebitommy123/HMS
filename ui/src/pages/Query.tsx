@@ -10,6 +10,7 @@ import {
   type QueryResult,
 } from "@/api/query";
 import { ApiError } from "@/api/client";
+import { useObservation, useViewIdentity } from "@/lib/viewContext";
 
 const DEFAULT_LIMIT = 25;
 const DEFAULT_TIMEOUT = 10;
@@ -23,6 +24,33 @@ export function Query() {
   const [preview, setPreview] = useState<QueryPlanPreview | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Let the agent see the semantic query the user is building + its result.
+  // Results are limited to <= MAX_LIMIT rows, so this stays bounded.
+  useViewIdentity(from ? `Query: ${from}` : "Query", {
+    type: "semantic_query",
+    from: from || null,
+  });
+  useObservation(
+    "semantic_query",
+    {
+      description: result
+        ? `Semantic query result for '${from}'`
+        : error
+          ? "the semantic query the user ran (errored)"
+          : "the semantic query the user is building",
+      kind: "json",
+    },
+    result
+      ? { from, limit, result }
+      : preview
+        ? { from, limit, plan: preview }
+        : error
+          ? { from, error }
+          : from
+            ? { from, limit }
+            : undefined,
+  );
 
   const types = useQuery({
     queryKey: ["object-types", { search: "" }],

@@ -11,7 +11,10 @@ hold on to anything.
 
 import threading
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from datapro_ai.view_context import ViewAccessor
 
 
 @dataclass(frozen=True)
@@ -23,6 +26,11 @@ class ToolContext:
     # should poll this and abort promptly, killing any subprocess they spawned
     # — otherwise "Stop" only takes effect after the tool finishes running.
     cancel_event: threading.Event | None = None
+    # Live read view over what the user is currently looking at (route +
+    # on-screen observations). Powers get_current_view / read_observation so the
+    # agent can "see what the user sees". None when the browser hasn't published
+    # a view (API-only client, panel closed).
+    view: "ViewAccessor | None" = None
 
 
 @dataclass(frozen=True)

@@ -9,6 +9,7 @@ import {
   type ObjectType,
 } from "@/api/objectTypes";
 import { ApiError } from "@/api/client";
+import { useViewIdentity } from "@/lib/viewContext";
 import { ObjectTypeFactoriesPanel } from "@/components/ObjectFactoriesPanel";
 import { TraitsPanel } from "@/components/TraitsPanel";
 import { relativeTime } from "@/lib/format";
@@ -36,6 +37,11 @@ export function ObjectTypeDetail() {
       navigate("/object-types");
     },
   });
+
+  useViewIdentity(
+    type.data?.name,
+    type.data ? { type: "object_type", id: type.data.id } : undefined,
+  );
 
   if (type.isLoading) return <Skeleton />;
   if (type.isError) {

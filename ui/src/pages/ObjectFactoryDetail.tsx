@@ -9,6 +9,7 @@ import {
   type ObjectFactory,
 } from "@/api/objectFactories";
 import { getDataSourceColumns } from "@/api/dataSources";
+import { useViewIdentity } from "@/lib/viewContext";
 import { ApiError } from "@/api/client";
 import {
   TraitConfigEditor,
@@ -37,6 +38,11 @@ export function ObjectFactoryDetail() {
       navigate(-1);
     },
   });
+
+  useViewIdentity(
+    factory.data ? "Object factory" : undefined,
+    factory.data ? { type: "object_factory", id: factory.data.id } : undefined,
+  );
 
   if (factory.isLoading) return <Skeleton />;
   if (factory.isError) {

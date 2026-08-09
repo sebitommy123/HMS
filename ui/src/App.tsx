@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router-dom";
 
+import { ViewContextProvider } from "@/lib/viewContext";
 import { Layout } from "@/components/Layout";
 import { CatalogDetail } from "@/pages/CatalogDetail";
 import { Catalogs } from "@/pages/Catalogs";
@@ -18,8 +19,9 @@ import { State } from "@/pages/State";
 
 export default function App() {
   return (
-    <Routes>
-      <Route element={<Layout />}>
+    <ViewContextProvider>
+      <Routes>
+        <Route element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="catalogs" element={<Catalogs />} />
         <Route path="catalogs/new" element={<NewCatalog />} />
@@ -34,7 +36,8 @@ export default function App() {
         <Route path="raw-trino-query" element={<RawTrinoQuery />} />
         <Route path="chats" element={<Chats />} />
         <Route path="chats/:id" element={<ChatDetail />} />
-      </Route>
-    </Routes>
+        </Route>
+      </Routes>
+    </ViewContextProvider>
   );
 }

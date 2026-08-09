@@ -66,3 +66,24 @@ def test_send_message_requires_anthropic_key_when_unset(client):
     r = client.post(f"/conversations/{cid}/messages", json={"text": "hi"})
     assert r.status_code == 503
     assert r.get_json()["error"] == "anthropic_not_configured"
+
+
+def test_send_message_refuses_when_core_unreachable(client, monkeypatch):
+    """The agent's tools all go through Core, so a turn with a dead Core is
+    pointless. The send endpoints refuse up front with 503 core_unreachable
+    rather than starting a turn that fails on its first tool call."""
+    import datapro_ai.api.messages as messages
+
+    monkeypatch.setattr(messages, "core_reachable", lambda _url: False)
+    # Make the key check pass so we reach the core check regardless of env key.
+    monkeypatch.setattr(messages, "_key_check_response", lambda: None)
+
+    cid = client.post("/conversations", json={"title": "No core"}).get_json()["id"]
+
+    r = client.post(f"/conversations/{cid}/messages", json={"text": "hi"})
+    assert r.status_code == 503
+    assert r.get_json()["error"] == "core_unreachable"
+
+    r = client.post(f"/conversations/{cid}/messages/stream", json={"text": "hi"})
+    assert r.status_code == 503
+    assert r.get_json()["error"] == "core_unreachable"

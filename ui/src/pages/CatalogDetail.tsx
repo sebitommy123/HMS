@@ -12,6 +12,7 @@ import {
   type ReconcileResult,
 } from "@/api/catalogs";
 import { ApiError } from "@/api/client";
+import { useViewIdentity } from "@/lib/viewContext";
 import { CatalogDataSourcesPanel } from "@/components/CatalogDataSourcesPanel";
 import { FlexModuleEditor } from "@/components/FlexModuleEditor";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -56,6 +57,18 @@ export function CatalogDetail() {
       await qc.invalidateQueries({ queryKey: ["trino-state"] });
     },
   });
+
+  useViewIdentity(
+    catalog.data?.name,
+    catalog.data
+      ? {
+          type: "catalog",
+          name: catalog.data.name,
+          connector: catalog.data.connector,
+          status: catalog.data.status,
+        }
+      : undefined,
+  );
 
   if (catalog.isLoading) {
     return <Skeleton />;

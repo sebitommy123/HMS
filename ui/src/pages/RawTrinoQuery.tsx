@@ -3,6 +3,7 @@ import { useMutation } from "@tanstack/react-query";
 
 import { executeRawTrinoQuery, type QueryResult } from "@/api/rawTrinoQuery";
 import { ApiError } from "@/api/client";
+import { useObservation, useViewIdentity } from "@/lib/viewContext";
 
 const SUGGESTIONS = [
   { label: "List catalogs", sql: "SHOW CATALOGS" },
@@ -36,6 +37,31 @@ export function RawTrinoQuery() {
   const [maxRows, setMaxRows] = useState(10_000);
   const [error, setError] = useState<QueryError | null>(null);
   const [result, setResult] = useState<QueryResult | null>(null);
+
+  // Let the agent see the query the user is composing / ran here and its result.
+  useViewIdentity("Raw Trino query", { type: "raw_trino_query" });
+  useObservation(
+    "raw_trino_query",
+    {
+      description: result
+        ? `Raw Trino query result — ${result.row_count} row(s)`
+        : error
+          ? `Raw Trino query — ${error.kind} error`
+          : "the raw Trino query the user is composing",
+      kind: "table",
+    },
+    result
+      ? {
+          sql,
+          columns: result.columns,
+          rows: result.rows,
+          row_count: result.row_count,
+          truncated: result.truncated,
+        }
+      : error
+        ? { sql, error: error.message, details: error.details }
+        : { sql },
+  );
 
   const mutation = useMutation({
     mutationFn: () =>

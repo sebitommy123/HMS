@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 
 import { createConversation, listConversations } from "@/api/conversations";
 import { ChatConversation } from "@/components/ChatConversation";
+import { useActiveConversation } from "@/lib/viewContext";
 import { relativeTime } from "@/lib/format";
 
 /**
@@ -15,6 +16,10 @@ import { relativeTime } from "@/lib/format";
 export function ChatSidePanel() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // The open chat is the publish target for "AI can see what you see": while a
+  // chat is open here, the app's current view is published to it.
+  useActiveConversation(selectedId);
 
   return (
     <aside

@@ -13,6 +13,7 @@ import {
   subscribeActiveStream,
 } from "@/api/conversations";
 import { AiApiError } from "@/api/ai-client";
+import { fetchHealth } from "@/api/health";
 import { MessageBlocks } from "@/components/MessageBlocks";
 import { relativeTime } from "@/lib/format";
 
@@ -83,6 +84,17 @@ export function ChatConversation({
     queryFn: () => getConversation(id),
     enabled: Boolean(id),
   });
+
+  // The agent's tools all go through Core; with Core down a turn just fails on
+  // its first tool call (and the AI rejects it up front). Poll Core's health so
+  // we can block sending and say why. fetchHealth throws if Core is unreachable.
+  const coreHealth = useQuery({
+    queryKey: ["core-health"],
+    queryFn: fetchHealth,
+    refetchInterval: 10_000,
+    retry: false,
+  });
+  const coreDown = coreHealth.isError;
 
   const deleteMutation = useMutation({
     mutationFn: () => deleteConversation(id),
@@ -366,16 +378,41 @@ export function ChatConversation({
         </div>
       )}
 
+      {coreDown && !isStreaming && (
+        <div
+          className="mb-2 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          data-testid="core-down-banner"
+        >
+          Core is unreachable — the agent needs Core for every tool, so chat is
+          paused. Start Core and this re-enables automatically.
+        </div>
+      )}
+
+      {variant === "panel" && !coreDown && (
+        <div
+          className="mb-1 flex items-center gap-1 px-1 text-[10px] text-zinc-400"
+          title="The assistant can read your current page and on-screen data (preview results, queries, the module you're editing, …) to answer questions about what you're looking at."
+          data-testid="sees-page-indicator"
+        >
+          <EyeIcon />
+          <span>Sees your current page</span>
+        </div>
+      )}
+
       <div className="border-t border-zinc-100 px-1 pt-3">
         <textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
           spellCheck={true}
-          placeholder="Ask about your catalogs, run a query, explore the data…"
-          className="block w-full resize-y rounded border border-zinc-200 bg-white p-3 text-sm shadow-inner focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+          placeholder={
+            coreDown
+              ? "Core is down — start it to chat."
+              : "Ask about your catalogs, run a query, explore the data…"
+          }
+          className="block w-full resize-y rounded border border-zinc-200 bg-white p-3 text-sm shadow-inner focus:border-zinc-400 focus:outline-none focus:ring-1 focus:ring-zinc-400 disabled:bg-zinc-50 disabled:text-zinc-400"
           rows={variant === "panel" ? 2 : 3}
-          disabled={isStreaming}
+          disabled={isStreaming || coreDown}
           data-testid="message-input"
         />
         <div className="mt-2 flex items-center justify-between text-xs text-zinc-500">
@@ -394,7 +431,7 @@ export function ChatConversation({
             <button
               type="button"
               onClick={() => void handleSend()}
-              disabled={!draft.trim()}
+              disabled={!draft.trim() || coreDown}
               className="rounded bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
               data-testid="send-button"
             >
@@ -408,6 +445,14 @@ export function ChatConversation({
 }
 
 // ---- icons -------------------------------------------------------------
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" className="h-3 w-3">
+      <path d="M10 4c-3.6 0-6.7 2.1-8 5 1.3 2.9 4.4 5 8 5s6.7-2.1 8-5c-1.3-2.9-4.4-5-8-5Zm0 8a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm0-1.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z" />
+    </svg>
+  );
+}
 
 function BackIcon() {
   return (
@@ -577,6 +622,9 @@ function toErrorMessage(err: unknown): string {
     const body = (err.body ?? {}) as { error?: string; details?: unknown };
     if (err.status === 503 && body.error === "anthropic_not_configured") {
       return "AI service has no ANTHROPIC_API_KEY configured. Set it on the AI process and restart.";
+    }
+    if (err.status === 503 && body.error === "core_unreachable") {
+      return "Core is unreachable — the agent needs Core. Start it and try again.";
     }
     if (body.details) {
       return typeof body.details === "string"

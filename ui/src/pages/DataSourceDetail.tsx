@@ -10,6 +10,7 @@ import {
 import { executeRawTrinoQuery, type QueryResult } from "@/api/rawTrinoQuery";
 import { ApiError } from "@/api/client";
 import { DataSourceFactoriesPanel } from "@/components/ObjectFactoriesPanel";
+import { useObservation, useViewIdentity } from "@/lib/viewContext";
 import { relativeTime } from "@/lib/format";
 
 const PREVIEW_LIMIT = 50;
@@ -22,6 +23,24 @@ export function DataSourceDetail() {
     queryFn: () => getDataSource(id),
     enabled: Boolean(id),
   });
+
+  // Tell the agent which data source the user is looking at. Canonical detail
+  // (columns, config) stays behind the agent's own Core tools via this id —
+  // we only carry the pointer here.
+  const ds = source.data;
+  useViewIdentity(
+    ds?.path,
+    ds
+      ? {
+          type: "data_source",
+          id: ds.id,
+          catalog: ds.catalog_name,
+          schema: ds.schema_name,
+          table: ds.table_name,
+          status: ds.status,
+        }
+      : undefined,
+  );
 
   if (source.isLoading) return <Skeleton />;
   if (source.isError) {
@@ -104,6 +123,31 @@ function PreviewSection({ row }: { row: DataSource }) {
   const preview = useMutation({
     mutationFn: () => executeRawTrinoQuery({ sql, max_rows: PREVIEW_LIMIT }),
   });
+
+  // Publish the preview the user ran so the agent can "see what it returned"
+  // (including an error / empty result), without re-querying.
+  useObservation(
+    "data_source_preview",
+    {
+      description: preview.data
+        ? `Raw-Trino preview of ${row.path} — ${preview.data.row_count} row(s)`
+        : preview.isError
+          ? `Raw-Trino preview of ${row.path} — failed`
+          : "the raw-Trino data preview the user ran",
+      kind: "table",
+    },
+    preview.data
+      ? {
+          sql,
+          columns: preview.data.columns,
+          rows: preview.data.rows,
+          row_count: preview.data.row_count,
+          truncated: preview.data.truncated,
+        }
+      : preview.isError
+        ? { sql, error: previewErrorText(preview.error) }
+        : undefined,
+  );
 
   return (
     <section data-testid="preview-section">
@@ -226,6 +270,15 @@ function renderCell(v: unknown): string {
   if (v === null || v === undefined) return "NULL";
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+function previewErrorText(error: unknown): string {
+  if (error instanceof ApiError) {
+    const body = (error.body ?? {}) as { error?: string; details?: unknown };
+    if (typeof body.details === "string") return body.details;
+    return body.error ?? `HTTP ${error.status}`;
+  }
+  return (error as Error)?.message ?? String(error);
 }
 
 function ColumnsSection({ dataSourceId }: { dataSourceId: string }) {

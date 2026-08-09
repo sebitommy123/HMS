@@ -29,6 +29,7 @@ from flask import (
 )
 from pydantic import BaseModel, Field, ValidationError
 
+from datapro_ai.api.health import core_reachable
 from datapro_ai.config import Config
 from datapro_ai.llm.agent import (
     StreamDone,
@@ -40,6 +41,7 @@ from datapro_ai.llm.agent import (
 )
 from datapro_ai.models import Conversation, Message
 from datapro_ai.turn_registry import ActiveTurn, TurnRegistry, iter_subscription
+from datapro_ai.view_context import ViewAccessor, ViewContextStore, normalize_and_cap
 
 bp = Blueprint("messages", __name__)
 
@@ -67,6 +69,10 @@ def _anthropic_client() -> anthropic.Anthropic:
 
 def _registry() -> TurnRegistry:
     return current_app.extensions["turn_registry"]
+
+
+def _view_store() -> ViewContextStore:
+    return current_app.extensions["view_context_store"]
 
 
 def _validate_request():
@@ -101,6 +107,28 @@ def _key_check_response():
                 {
                     "error": "anthropic_not_configured",
                     "details": "ANTHROPIC_API_KEY is not set on the AI service.",
+                }
+            ),
+            503,
+        )
+    return None
+
+
+def _core_check_response():
+    """Refuse to start a turn if Core is down. Every agent tool goes through
+    Core (catalogs, queries, data sources, …), so a turn with a dead Core would
+    just fail on the first tool call — better to reject up front."""
+    cfg = _cfg()
+    if not core_reachable(cfg.core_url):
+        return (
+            jsonify(
+                {
+                    "error": "core_unreachable",
+                    "details": (
+                        f"Core is not reachable at {cfg.core_url}. The agent's "
+                        "tools all go through Core, so it can't run without it — "
+                        "start Core and try again."
+                    ),
                 }
             ),
             503,
@@ -153,6 +181,9 @@ def _start_turn(
     client = _anthropic_client()
     tools = default_tools()
     conv_id_str = str(conversation_id)
+    # Bind a live view over what the user is looking at (captured here, on the
+    # request thread, so the agent thread can read it without an app context).
+    view_accessor = ViewAccessor(_view_store(), conv_id_str)
 
     def runner(turn: ActiveTurn) -> None:
         # New session for the agent thread — SQLAlchemy sessions are not
@@ -174,6 +205,7 @@ def _start_turn(
                     session=session,
                     cfg=cfg,
                     cancel_event=turn.cancel_event,
+                    view_context=view_accessor,
                 ):
                     turn.publish(ev)
             except Exception as exc:
@@ -202,6 +234,10 @@ def send_message(conversation_id):
     key_error = _key_check_response()
     if key_error:
         return key_error
+
+    core_error = _core_check_response()
+    if core_error:
+        return core_error
 
     payload, validation_error = _validate_request()
     if validation_error:
@@ -285,6 +321,10 @@ def send_message_stream(conversation_id):
     if key_error:
         return key_error
 
+    core_error = _core_check_response()
+    if core_error:
+        return core_error
+
     payload, validation_error = _validate_request()
     if validation_error:
         return validation_error
@@ -321,6 +361,21 @@ def cancel_active_stream(conversation_id):
         return jsonify({"cancelled": False, "reason": "no_active_turn"}), 404
     turn.cancel()
     return jsonify({"cancelled": True})
+
+
+# ---- View context (what the user is looking at) ----------------------------
+
+
+@bp.put("/conversations/<uuid:conversation_id>/view-context")
+def put_view_context(conversation_id):
+    """The browser publishes what the user is currently looking at — route +
+    on-screen observations — for this conversation. The agent reads it live via
+    get_current_view / read_observation. Fire-and-forget and defensive: a
+    malformed body yields a minimal view rather than an error, so a client bug
+    can't break publishing."""
+    raw = request.get_json(force=True, silent=True)
+    _view_store().put(str(conversation_id), normalize_and_cap(raw))
+    return ("", 204)
 
 
 # ---- SSE rendering ---------------------------------------------------------

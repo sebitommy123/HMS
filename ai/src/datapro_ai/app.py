@@ -8,6 +8,7 @@ from datapro_ai.api import messages as messages_api
 from datapro_ai.config import Config
 from datapro_ai.db import make_engine, make_session_factory
 from datapro_ai.turn_registry import TurnRegistry
+from datapro_ai.view_context import ViewContextStore
 
 
 def create_app(config: Config | None = None) -> Flask:
@@ -31,6 +32,10 @@ def create_app(config: Config | None = None) -> Flask:
     # Process-wide registry of in-flight agent turns. One per conversation.
     # Lives for the lifetime of the process; single-instance by design.
     app.extensions["turn_registry"] = TurnRegistry()
+
+    # Latest UI view per conversation, published by the browser so the agent
+    # can "see what the user sees". Ephemeral, single-instance.
+    app.extensions["view_context_store"] = ViewContextStore()
 
     app.register_blueprint(health_api.bp)
     app.register_blueprint(conversations_api.bp)

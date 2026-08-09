@@ -13,7 +13,7 @@ def health():
     engine = current_app.extensions["db_engine"]
 
     postgres_ok = db_ping(engine)
-    core_ok = _core_reachable(cfg.core_url)
+    core_ok = core_reachable(cfg.core_url)
     anthropic_configured = bool(cfg.anthropic_api_key)
 
     status = {
@@ -27,7 +27,9 @@ def health():
     return jsonify({"status": overall, **status}), (200 if overall_ok else 503)
 
 
-def _core_reachable(core_url: str) -> bool:
+def core_reachable(core_url: str) -> bool:
+    """Whether Core answers its /health. Shared with the messages endpoints,
+    which refuse to start an agent turn when Core is down (every tool needs it)."""
     try:
         r = requests.get(f"{core_url}/health", timeout=2)
         return r.ok

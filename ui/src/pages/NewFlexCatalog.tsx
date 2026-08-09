@@ -14,6 +14,7 @@ import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 
 import { createCatalog } from "@/api/catalogs";
+import { useObservation, useViewIdentity } from "@/lib/viewContext";
 import { ApiError } from "@/api/client";
 import { previewFlexModule, type FlexPreviewResult } from "@/api/flexModules";
 import { CodeEditor } from "@/components/CodeEditor";
@@ -66,6 +67,27 @@ export function NewFlexCatalog() {
   const [source, setSource] = useState(STARTER_TEMPLATE);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<FlexPreviewResult | null>(null);
+
+  // The flex module the user is drafting is client-only — the agent can't get
+  // it any other way. Publish the source + any preview so it can help write it.
+  useViewIdentity("New flex catalog", { type: "new_flex_catalog", name: name || null });
+  useObservation(
+    "flex_module_draft",
+    { description: "the flex module Python source the user is writing", kind: "text" },
+    { name, source },
+  );
+  useObservation(
+    "flex_module_preview",
+    {
+      description: preview
+        ? "preview result of the draft flex module"
+        : error
+          ? "the draft flex module failed to preview"
+          : "no preview run yet",
+      kind: "json",
+    },
+    preview ?? (error ? { error } : undefined),
+  );
 
   const previewMutation = useMutation({
     mutationFn: () => previewFlexModule(source),

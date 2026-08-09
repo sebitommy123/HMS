@@ -53,6 +53,7 @@ from sqlalchemy.orm import Session
 from datapro_ai.config import Config, DEFAULT_EFFORT
 from datapro_ai.llm.tools.base import ToolContext, ToolError, ToolRegistry
 from datapro_ai.models import Conversation, Message, Role
+from datapro_ai.view_context import ViewAccessor
 
 
 # ---- Event types -----------------------------------------------------------
@@ -213,6 +214,7 @@ def run_agent_stream(
     session: Session,
     cfg: Config,
     cancel_event: threading.Event | None = None,
+    view_context: ViewAccessor | None = None,
 ) -> Iterator[StreamEvent]:
     """Drive the agent until terminal, yielding events along the way.
 
@@ -227,7 +229,9 @@ def run_agent_stream(
         user_message=user_message.to_dict(),
     )
 
-    tool_ctx = ToolContext(core_url=cfg.core_url, cancel_event=cancel_event)
+    tool_ctx = ToolContext(
+        core_url=cfg.core_url, cancel_event=cancel_event, view=view_context
+    )
     iterations = 0
     final_stop_reason = "unknown"
     truncated = False
@@ -256,8 +260,19 @@ def run_agent_stream(
                 "thinking": {"type": "adaptive"},
                 "output_config": {"effort": DEFAULT_EFFORT},
             }
+            # System = the conversation's base prompt plus a fresh one-line hint
+            # about what the user is currently looking at, so the agent always
+            # knows WHERE they are without spending a tool call. Details stay
+            # behind get_current_view / read_observation to protect the context
+            # window. Rebuilt each turn since the user may have navigated.
+            system_parts: list[str] = []
             if conversation.system_prompt:
-                kwargs["system"] = conversation.system_prompt
+                system_parts.append(conversation.system_prompt)
+            view_hint = view_context.system_hint() if view_context is not None else None
+            if view_hint:
+                system_parts.append(view_hint)
+            if system_parts:
+                kwargs["system"] = "\n\n".join(system_parts)
 
             # Stream the response. text_stream gives us only the visible text
             # deltas (no thinking_delta noise); we still get the structured
@@ -592,6 +607,8 @@ def default_tools() -> ToolRegistry:
     from datapro_ai.llm.tools.delete_object_factory import DeleteObjectFactoryTool
     from datapro_ai.llm.tools.delete_object_type import DeleteObjectTypeTool
     from datapro_ai.llm.tools.get_catalog import GetCatalogTool
+    from datapro_ai.llm.tools.get_current_view import GetCurrentViewTool
+    from datapro_ai.llm.tools.read_observation import ReadObservationTool
     from datapro_ai.llm.tools.get_data_source import GetDataSourceTool
     from datapro_ai.llm.tools.get_flex_contract import GetFlexContractTool
     from datapro_ai.llm.tools.get_data_source_columns import (
@@ -639,6 +656,9 @@ def default_tools() -> ToolRegistry:
 
     return ToolRegistry(
         [
+            # "See what the user sees" — the live left-panel view + on-screen data.
+            GetCurrentViewTool(),
+            ReadObservationTool(),
             ListCatalogsTool(),
             GetCatalogTool(),
             InspectTableTool(),
