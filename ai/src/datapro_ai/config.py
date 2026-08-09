@@ -30,12 +30,25 @@ class Config:
             for port in (5173, 5174, 5175, 5176, 4173, 4174, 4175, 4176)
         ]
         cors_raw = os.environ.get("CORS_ORIGINS", ",".join(default_origins))
+
+        # CORE_URL is mandatory: the AI service is useless without Core, and a
+        # silent localhost default turns a misconfigured port into a debugging
+        # scavenger hunt (the agent hits whatever else is on :5001, gets 405s,
+        # and retries). Fail loud instead. scripts/dev-up.sh always sets it.
+        core_url = os.environ.get("CORE_URL")
+        if not core_url:
+            raise RuntimeError(
+                "CORE_URL is required — the AI service can't run without Core. "
+                "Start via scripts/dev-up.sh, or set it explicitly "
+                "(e.g. CORE_URL=http://127.0.0.1:5001)."
+            )
+
         return cls(
             database_url=os.environ.get(
                 "DATABASE_URL",
                 "postgresql+psycopg://datapro:datapro@localhost:5434/datapro_ai",
             ),
-            core_url=os.environ.get("CORE_URL", "http://127.0.0.1:5001"),
+            core_url=core_url,
             # Empty string is allowed for local-tooling smoke tests that don't
             # actually call Anthropic. Real usage requires a real key.
             anthropic_api_key=os.environ.get("ANTHROPIC_API_KEY", ""),

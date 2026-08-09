@@ -24,24 +24,49 @@ flex_sources_newer_than_jar() {
 }
 if flex_sources_newer_than_jar; then
   log "Building flex connector JAR..."
+  # Mount a local maven-settings.xml if the user created one (internal mirror
+  # config for networks where Maven Central is blocked — see
+  # flex/connector/maven-settings.xml.example). Absent → Maven uses Central.
+  maven_settings=()
+  if [[ -f "$HMS_ROOT/flex/connector/maven-settings.xml" ]]; then
+    maven_settings=(-v "$HMS_ROOT/flex/connector/maven-settings.xml:/root/.m2/settings.xml:ro")
+  fi
   (
     cd "$HMS_ROOT/flex/connector" && docker run --rm \
       -v "$(pwd):/work" \
       -v "$(pwd)/.m2:/root/.m2" \
+      "${maven_settings[@]}" \
       -w /work \
-      maven:3.9-eclipse-temurin-25-alpine \
+      docker.io/library/maven:3.9-eclipse-temurin-25-alpine \
       mvn -B -DskipTests package >/dev/null
   )
 fi
 
-log "Bringing up Postgres + Trino containers (docker compose up -d)..."
+log "Bringing up the Trino container (docker compose up -d)..."
 # --build ensures the custom trino-flex image is rebuilt whenever the
 # Dockerfile, the Python runtime, or the flex JAR has changed. Docker's
 # layer cache makes the common case (no changes) near-instant.
-(cd "$HMS_ROOT/datapro" && docker compose up -d --build)
+#
+# Compose files layer left-to-right: the host-agnostic base, then the per-OS
+# host-mount overlay (DATAPRO_OS_COMPOSE, set in _lib.sh). A gitignored
+# docker-compose.override.yml, if present, is auto-merged by compose on top.
+datapro_compose=(-f docker-compose.yml)
+if [[ -n "${DATAPRO_OS_COMPOSE:-}" && -f "$HMS_ROOT/datapro/$DATAPRO_OS_COMPOSE" ]]; then
+  datapro_compose+=(-f "$DATAPRO_OS_COMPOSE")
+else
+  warn "No host-mount overlay for OS '$HMS_OS' — flex modules can't read host files."
+fi
+(cd "$HMS_ROOT/datapro" && docker compose "${datapro_compose[@]}" up -d --build)
 
 log "Waiting for Trino to be reachable..."
-wait_for_http "http://127.0.0.1:8080/v1/info" 120
+wait_for_http "http://127.0.0.1:${TRINO_PORT}/v1/info" 120
+
+# Core and AI each own a `postgres` service in their own compose file (the
+# `core`/`ai` services there are the containerized deploy path — we run those
+# on the host instead, so only start `postgres`). --wait blocks until the
+# healthcheck passes so the alembic steps below don't race a cold DB.
+log "Bringing up Core's Postgres..."
+(cd "$HMS_ROOT/core" && docker compose up -d --wait postgres)
 
 # Run migrations against Core's Postgres so the schema is fresh.
 log "Running Core Alembic migrations..."
@@ -62,6 +87,12 @@ fi
 
 log "Waiting for Core /health..."
 wait_for_http "$CORE_URL/health" 30
+
+log "Bringing up AI's Postgres..."
+(cd "$HMS_ROOT/ai" && docker compose up -d --wait postgres)
+
+log "Running AI Alembic migrations..."
+(cd "$HMS_ROOT/ai" && uv run alembic upgrade head)
 
 if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
   warn "ANTHROPIC_API_KEY not set — AI will return 503 from /messages endpoints."
