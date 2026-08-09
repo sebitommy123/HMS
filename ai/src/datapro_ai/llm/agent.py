@@ -43,6 +43,7 @@ two transports — no drift.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Iterator
 
@@ -129,6 +130,25 @@ class ToolResult(StreamEvent):
 
 
 @dataclass(frozen=True)
+class Heartbeat(StreamEvent):
+    """Emitted periodically while a tool runs. Tools execute off the stream
+    thread, so without this the SSE stream would go silent during a long tool
+    and the client's stall detector would wrongly declare it dead ("stream went
+    quiet"). Carries enough context for the UI to optionally show "still running
+    <tool> (Ns)"."""
+
+    tool_use_id: str
+    name: str
+    elapsed_seconds: float
+
+    def __init__(self, *, tool_use_id: str, name: str, elapsed_seconds: float) -> None:
+        object.__setattr__(self, "type", "heartbeat")
+        object.__setattr__(self, "tool_use_id", tool_use_id)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "elapsed_seconds", elapsed_seconds)
+
+
+@dataclass(frozen=True)
 class ToolResultsPersisted(StreamEvent):
     message: dict
 
@@ -207,7 +227,7 @@ def run_agent_stream(
         user_message=user_message.to_dict(),
     )
 
-    tool_ctx = ToolContext(core_url=cfg.core_url)
+    tool_ctx = ToolContext(core_url=cfg.core_url, cancel_event=cancel_event)
     iterations = 0
     final_stop_reason = "unknown"
     truncated = False
@@ -317,7 +337,17 @@ def run_agent_stream(
                     yield ToolExecuting(
                         tool_use_id=tu.id, name=tu.name, input=tu.input
                     )
-                    output, is_error = _execute_tool(tu, tools, tool_ctx)
+                    # Run the tool off this thread, emitting heartbeats while it
+                    # works and bailing out at once if the user hits Stop.
+                    tool_out: dict[str, Any] = {}
+                    yield from _run_tool_streaming(
+                        tu, tools, tool_ctx, cancel_event, tool_out
+                    )
+                    if tool_out.get("cancelled"):
+                        cancelled_between_tools = True
+                        output, is_error = "tool execution cancelled by user", True
+                    else:
+                        output, is_error = tool_out["result"]
                     yield ToolResult(
                         tool_use_id=tu.id, output=output, is_error=is_error
                     )
@@ -397,6 +427,70 @@ def _execute_tool(
         return tool.execute(ctx, tool_use.input), False
     except ToolError as exc:
         return str(exc), True
+
+
+# How often to emit a heartbeat while a tool runs (keeps the SSE stream from
+# looking "quiet"), and how fast we poll for cancellation while waiting.
+_TOOL_HEARTBEAT_SECONDS = 10.0
+_TOOL_POLL_SECONDS = 0.2
+
+
+def _run_tool_streaming(
+    tool_use: Any,
+    tools: ToolRegistry,
+    ctx: ToolContext,
+    cancel_event: threading.Event | None,
+    out: dict[str, Any],
+) -> Iterator[StreamEvent]:
+    """Run a tool OFF the stream thread, yielding Heartbeat events while it
+    works. Two problems this solves at once:
+
+      * "Stop" is responsive: if the user cancels, we stop waiting immediately
+        rather than blocking until the tool's own timeout. The abandoned worker
+        thread carries its own timeout (HTTP/Trino clients), and run_bash
+        additionally kills its process group via ctx.cancel_event, so nothing
+        runs forever — its (discarded) result just lands later.
+      * The stream never goes silent: a long tool would otherwise emit no
+        events and trip the client's stall detector.
+
+    Writes into ``out``: ``out["result"] = (output, is_error)`` on completion,
+    or ``out["cancelled"] = True`` if the user cancelled. Re-raises an
+    unexpected tool exception (ToolError is already turned into an is_error
+    result by _execute_tool)."""
+    box: dict[str, Any] = {}
+
+    def worker() -> None:
+        try:
+            box["result"] = _execute_tool(tool_use, tools, ctx)
+        except BaseException as exc:  # noqa: BLE001 — re-raised on the main thread
+            box["exc"] = exc
+
+    thread = threading.Thread(
+        target=worker, name=f"tool-{tool_use.name}", daemon=True
+    )
+    started = time.monotonic()
+    last_beat = started
+    thread.start()
+
+    while True:
+        thread.join(timeout=_TOOL_POLL_SECONDS)
+        if not thread.is_alive():
+            break
+        if cancel_event is not None and cancel_event.is_set():
+            out["cancelled"] = True
+            return
+        now = time.monotonic()
+        if now - last_beat >= _TOOL_HEARTBEAT_SECONDS:
+            last_beat = now
+            yield Heartbeat(
+                tool_use_id=tool_use.id,
+                name=tool_use.name,
+                elapsed_seconds=now - started,
+            )
+
+    if "exc" in box:
+        raise box["exc"]
+    out["result"] = box["result"]
 
 
 def _persist_message(

@@ -67,6 +67,48 @@ def test_run_bash_rejects_invalid_timeout(ctx):
         )
 
 
+def test_run_bash_cancel_returns_promptly_and_reports_cancelled():
+    """Hitting "Stop" mid-command must kill it and return right away — not wait
+    for the command to finish or the timeout to elapse."""
+    import threading
+    import time
+
+    cancel = threading.Event()
+    ctx = ToolContext(core_url="http://unused", cancel_event=cancel)
+    threading.Timer(0.5, cancel.set).start()
+
+    started = time.monotonic()
+    out = RunBashTool().execute(
+        ctx, {"command": "sleep 30", "timeout_seconds": 60}
+    )
+    elapsed = time.monotonic() - started
+
+    assert "CANCELLED by user" in out
+    assert elapsed < 5, f"cancel should return promptly; took {elapsed:.1f}s"
+
+
+def test_run_bash_cancel_kills_child_processes(tmp_path):
+    """The whole process tree must die, not just the top-level bash. We start a
+    grandchild that would touch a marker after a delay; if only bash were killed
+    the orphaned grandchild would survive and write it."""
+    import threading
+    import time
+
+    marker = tmp_path / "child_ran.txt"
+    cancel = threading.Event()
+    ctx = ToolContext(core_url="http://unused", cancel_event=cancel)
+    threading.Timer(0.5, cancel.set).start()
+
+    out = RunBashTool().execute(
+        ctx,
+        {"command": f"(sleep 3; touch '{marker}') & wait", "timeout_seconds": 60},
+    )
+    assert "CANCELLED by user" in out
+
+    time.sleep(4)  # give an escaped grandchild time to write the marker
+    assert not marker.exists(), "a child process survived the cancel kill"
+
+
 def test_run_bash_definition_is_registered_in_default_tools():
     from datapro_ai.llm.agent import default_tools
 

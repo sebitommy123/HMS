@@ -9,6 +9,7 @@ into `execute` via the `ToolContext` argument so individual tool classes don't
 hold on to anything.
 """
 
+import threading
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -18,6 +19,10 @@ class ToolContext:
     """Per-invocation state passed to every tool's execute()."""
 
     core_url: str
+    # Set when the user cancels the turn. Long-running tools (e.g. run_bash)
+    # should poll this and abort promptly, killing any subprocess they spawned
+    # — otherwise "Stop" only takes effect after the tool finishes running.
+    cancel_event: threading.Event | None = None
 
 
 @dataclass(frozen=True)

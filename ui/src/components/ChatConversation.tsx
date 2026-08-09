@@ -538,6 +538,10 @@ function applyEvent(
         (prev) => (prev ? { ...prev, title: ev.title } : prev),
       );
       return;
+    case "heartbeat":
+      // No state change — its only job is to arrive, which resets the client's
+      // stall detector so a long-running tool isn't mistaken for a dead stream.
+      return;
     case "assistant_persisted":
     case "tool_results_persisted":
     case "stream_done":

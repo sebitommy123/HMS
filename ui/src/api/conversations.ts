@@ -145,6 +145,9 @@ export type StreamEvent =
       input: Record<string, unknown>;
     }
   | { type: "tool_result"; tool_use_id: string; output: string; is_error: boolean }
+  // Emitted periodically while a tool runs — keeps the stream from looking
+  // stalled during a long tool. No state; the UI just needs to receive it.
+  | { type: "heartbeat"; tool_use_id: string; name: string; elapsed_seconds: number }
   | { type: "tool_results_persisted"; message: Message }
   | { type: "title_updated"; title: string }
   | {
