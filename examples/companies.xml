@@ -1,0 +1,38 @@
+<Companies>
+    <Company id="0001825079">
+        <CEO>Jeff Bezos</CEO>
+        <Industry>Technology</Industry>
+        <Country>United States</Country>
+        <City>Seattle</City>
+        <State>Washington</State>
+        <Zip>98101</Zip>
+        <Address>410 Terry Ave N</Address>
+        <Phone>206-266-1000</Phone>
+        <Website>https://www.amazon.com</Website>
+        <Description>Amazon is a technology company that sells books, movies, music, and other products.</Description>
+    </Company>
+    <Company id="0001874315">
+        <CEO>Satya Nadella</CEO>
+        <Industry>Technology</Industry>
+        <Country>United States</Country>
+        <City>Redmond</City>
+        <State>Washington</State>
+        <Zip>98052</Zip>
+        <Address>One Microsoft Way</Address>
+        <Phone>425-882-8080</Phone>
+        <Website>https://www.microsoft.com</Website>
+        <Description>Microsoft is a technology company that sells software, hardware, and services.</Description>
+    </Company>
+    <Company id="0001969302">
+        <CEO>Tim Cook</CEO>
+        <Industry>Technology</Industry>
+        <Country>United States</Country>
+        <City>Cupertino</City>
+        <State>California</State>
+        <Zip>95014</Zip>
+        <Address>1 Infinite Loop</Address>
+        <Phone>408-996-1010</Phone>
+        <Website>https://www.apple.com</Website>
+        <Description>Apple is a technology company that sells computers, phones, and other products.</Description>
+    </Company>
+</Companies>

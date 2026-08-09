@@ -1,0 +1,11 @@
+2025-04-11T00:08:54+00:00,sku=XYZ-999 OUT of stock
+2025-04-11T01:27:21+00:00,sku=ABC-123 in stock
+2025-04-11T01:40:02+00:00,warehouse sync done
+2025-04-11T03:32:26+00:00,sku=ABC-123 in stock
+2025-04-11T05:17:16+00:00,DB connection reset
+2025-04-11T07:02:49+00:00,sku=XYZ-999 OUT of stock
+2025-04-11T07:21:20+00:00,warehouse sync done
+2025-04-11T08:37:23+00:00,sku=XYZ-999 OUT of stock
+2025-04-11T09:14:34+00:00,DB connection reset
+2025-04-11T10:38:23+00:00,warehouse sync done
+2025-04-11T11:08:18+00:00,DB connection reset

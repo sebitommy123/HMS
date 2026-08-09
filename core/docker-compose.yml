@@ -1,0 +1,41 @@
+name: hms-core
+
+# Core is single-instance by design (see README § Deployment model). Do not scale
+# the `core` service to >1 replicas — the reconciler has no cross-process locking.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: hms-core-postgres
+    environment:
+      POSTGRES_DB: datapro_core
+      POSTGRES_USER: datapro
+      POSTGRES_PASSWORD: datapro
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datapro -d datapro_core"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  core:
+    build: .
+    container_name: hms-core
+    environment:
+      DATABASE_URL: postgresql+psycopg://datapro:datapro@postgres:5432/datapro_core
+      TRINO_HOST: host.docker.internal
+      TRINO_PORT: "8080"
+      TRINO_USER: datapro-core
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:

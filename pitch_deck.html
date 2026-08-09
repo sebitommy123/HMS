@@ -1,0 +1,1051 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>HMS — Investor Pitch</title>
+<style>
+  /* ---------- Page setup ---------- */
+  @page {
+    size: 13.333in 7.5in;
+    margin: 0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    font-family: -apple-system, "Helvetica Neue", "Inter", "Segoe UI", Roboto, sans-serif;
+    color: #0E1726;
+    background: #FFFFFF;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ---------- Slide ---------- */
+  .slide {
+    width: 13.333in;
+    height: 7.5in;
+    padding: 0.65in 0.9in 0.85in;
+    page-break-after: always;
+    break-after: page;
+    position: relative;
+    overflow: hidden;
+    background: #FFFFFF;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  /* ---------- Reusable type ---------- */
+  .eyebrow {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: #14B8A6;
+    font-weight: 600;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 60px;
+    line-height: 1.05;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #0E1726;
+  }
+  h2 {
+    font-size: 38px;
+    line-height: 1.12;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin-bottom: 18px;
+  }
+  h3 {
+    font-size: 19px;
+    line-height: 1.25;
+    font-weight: 600;
+    color: #0E1726;
+    margin-bottom: 6px;
+  }
+  p, li {
+    font-size: 17px;
+    line-height: 1.5;
+    color: #3F4A60;
+  }
+  .lede {
+    font-size: 22px;
+    line-height: 1.45;
+    color: #1F2A40;
+    max-width: 11in;
+    margin-bottom: 14px;
+  }
+  strong { color: #0E1726; font-weight: 600; }
+  em { font-style: normal; color: #14B8A6; font-weight: 600; }
+
+  /* ---------- Layout helpers ---------- */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35in;
+    margin-top: 0.2in;
+  }
+  .grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.3in;
+    margin-top: 0.22in;
+  }
+  .grid-4 {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.22in;
+    margin-top: 0.22in;
+  }
+  .card {
+    background: #F8FAFC;
+    border: 1px solid #E5EAF2;
+    border-radius: 12px;
+    padding: 22px 24px;
+  }
+  .card .num {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    color: #14B8A6;
+    margin-bottom: 10px;
+  }
+  .card p { font-size: 15px; line-height: 1.5; }
+
+  ul.clean { list-style: none; padding: 0; }
+  ul.clean li {
+    padding: 7px 0 7px 22px;
+    position: relative;
+    font-size: 16px;
+  }
+  ul.clean li::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #14B8A6;
+    position: absolute;
+    left: 0;
+    top: 18px;
+  }
+
+  /* ---------- Slide footer ---------- */
+  .footer {
+    position: absolute;
+    bottom: 0.32in;
+    left: 0.9in;
+    right: 0.9in;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+    color: #98A1B5;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .footer .brand { color: #14B8A6; font-weight: 600; letter-spacing: 0.18em; }
+
+  /* ---------- Title slide ---------- */
+  .slide.title {
+    background: linear-gradient(135deg, #0E1726 0%, #1A2A4A 100%);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0.9in 1.1in;
+  }
+  .slide.title .eyebrow { color: #14B8A6; }
+  .slide.title h1 { color: white; font-size: 86px; }
+  .slide.title .tag {
+    font-size: 24px;
+    color: #B0C0DC;
+    margin-top: 22px;
+    max-width: 9in;
+    line-height: 1.4;
+  }
+  .slide.title .footer { color: #5A6A88; }
+  .slide.title .footer .brand { color: #14B8A6; }
+  .accent-bar {
+    width: 80px;
+    height: 6px;
+    background: #14B8A6;
+    border-radius: 3px;
+    margin-bottom: 28px;
+  }
+
+  /* ---------- Hero slide ---------- */
+  .slide.hero {
+    background: #0E1726;
+    color: white;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .slide.hero h1 { color: white; font-size: 64px; max-width: 10.5in; }
+  .slide.hero .tag { color: #B0C0DC; font-size: 22px; margin-top: 22px; max-width: 9.5in; }
+  .slide.hero .footer { color: #5A6A88; }
+  .slide.hero .footer .brand { color: #14B8A6; }
+
+  /* ---------- Architecture diagram ---------- */
+  .arch {
+    display: grid;
+    grid-template-rows: auto auto auto auto auto;
+    gap: 12px;
+    margin-top: 0.2in;
+    max-width: 11.4in;
+  }
+  .arch-row { display: flex; gap: 12px; align-items: stretch; }
+  .arch-block {
+    flex: 1;
+    background: #F8FAFC;
+    border: 1px solid #E5EAF2;
+    border-radius: 10px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .arch-block.accent { background: #ECFDF9; border-color: #14B8A6; }
+  .arch-block.dark { background: #0E1726; color: white; border-color: #0E1726; }
+  .arch-block.dark h4 { color: white; }
+  .arch-block.dark p { color: #B0C0DC; }
+  .arch-block h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 3px;
+    color: #0E1726;
+  }
+  .arch-block p {
+    font-size: 13px;
+    color: #6A7693;
+    line-height: 1.4;
+  }
+  .arch-arrow {
+    text-align: center;
+    color: #14B8A6;
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1;
+    height: 10px;
+  }
+
+  /* ---------- Contrast columns ---------- */
+  .contrast {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4in;
+    margin-top: 0.22in;
+  }
+  .col-bad, .col-good {
+    border-radius: 12px;
+    padding: 24px 26px;
+  }
+  .col-bad { background: #FFF5F5; border: 1px solid #FBD9D9; }
+  .col-good { background: #ECFDF9; border: 1px solid #B7EFE3; }
+  .col-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .col-bad .col-label { color: #C73D3D; }
+  .col-good .col-label { color: #0F8C7E; }
+  .col-bad h3, .col-good h3 { font-size: 21px; margin-bottom: 12px; }
+  .col-bad ul, .col-good ul { list-style: none; }
+  .col-bad ul li, .col-good ul li {
+    font-size: 15px;
+    padding: 5px 0;
+    color: #3F4A60;
+    line-height: 1.45;
+  }
+
+  /* ---------- Roadmap ---------- */
+  .roadmap {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 0.22in;
+    margin-top: 0.22in;
+  }
+  .road-item { border-top: 4px solid #14B8A6; padding-top: 14px; }
+  .road-phase {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    color: #14B8A6;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .road-title { font-size: 17px; font-weight: 600; margin-bottom: 6px; color: #0E1726; }
+  .road-body { font-size: 13px; line-height: 1.45; color: #6A7693; }
+
+  /* ---------- User story slide ---------- */
+  .story-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4in;
+    margin-top: 0.22in;
+  }
+  .story-col {
+    border-radius: 12px;
+    padding: 26px 28px;
+  }
+  .story-col.before {
+    background: #1A1F2E;
+    color: white;
+  }
+  .story-col.after {
+    background: #ECFDF9;
+    border: 1px solid #B7EFE3;
+  }
+  .story-time {
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .story-col.before .story-time { color: #FF8B7A; }
+  .story-col.after .story-time { color: #0F8C7E; }
+  .story-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .story-col.before .story-tag { color: #FFB0A4; }
+  .story-col.after .story-tag { color: #0F8C7E; }
+  .story-body {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+  .story-col.before .story-body { color: #C8D2E5; }
+  .story-col.after .story-body { color: #1F4F47; }
+  .story-stat {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .story-col.before .story-stat { color: #FF8B7A; }
+  .story-col.after .story-stat {
+    border-top: 1px solid #B7EFE3;
+    color: #0F8C7E;
+  }
+
+  /* ---------- Technical example slide ---------- */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.3in;
+    margin-top: 0.18in;
+  }
+  .tech-block { display: flex; flex-direction: column; }
+  .tech-label {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #14B8A6;
+    margin-bottom: 8px;
+  }
+  .code {
+    background: #0E1726;
+    color: #E2E8F0;
+    border-radius: 10px;
+    padding: 18px 22px;
+    font-family: "SF Mono", "Monaco", "Menlo", "Consolas", monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    white-space: pre;
+    overflow: hidden;
+    flex: 1;
+  }
+  .code .k { color: #7FE5D6; }
+  .code .s { color: #FCD9A0; }
+  .code .n { color: #C8B6FF; }
+  .code .c { color: #6A7693; font-style: italic; }
+  .code .b { color: #5BC97D; }
+  .tech-note {
+    margin-top: 0.18in;
+    font-size: 14px;
+    color: #6A7693;
+    line-height: 1.5;
+    font-style: italic;
+  }
+  .tech-note strong { color: #14B8A6; font-style: normal; }
+
+  /* ---------- Market sizing ---------- */
+  .market-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.35in;
+    margin-top: 0.25in;
+    align-items: stretch;
+  }
+  .market-card {
+    border-radius: 12px;
+    padding: 28px 28px 26px;
+    background: #F8FAFC;
+    border: 1px solid #E5EAF2;
+    display: flex;
+    flex-direction: column;
+  }
+  .market-card.highlight {
+    background: linear-gradient(135deg, #14B8A6 0%, #0F8C7E 100%);
+    color: white;
+    border-color: #14B8A6;
+  }
+  .market-tier {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #14B8A6;
+    margin-bottom: 10px;
+  }
+  .market-card.highlight .market-tier { color: #B7EFE3; }
+  .market-num {
+    font-size: 56px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    color: #0E1726;
+  }
+  .market-card.highlight .market-num { color: white; }
+  .market-label {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 8px 0 12px;
+    color: #0E1726;
+  }
+  .market-card.highlight .market-label { color: white; }
+  .market-body {
+    font-size: 14px;
+    line-height: 1.5;
+    color: #6A7693;
+  }
+  .market-card.highlight .market-body { color: #DDFBF4; }
+
+  /* ---------- Competitor matrix ---------- */
+  .comp-table {
+    margin-top: 0.22in;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid #E5EAF2;
+    width: 100%;
+  }
+  .comp-row {
+    display: grid;
+    grid-template-columns: 1.6fr 1.4fr 1.6fr;
+    border-bottom: 1px solid #E5EAF2;
+  }
+  .comp-row:last-child { border-bottom: none; }
+  .comp-row.head {
+    background: #0E1726;
+    color: white;
+  }
+  .comp-row.head .comp-cell { font-weight: 600; font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: #B0C0DC; }
+  .comp-row.head .comp-cell:first-child { color: white; }
+  .comp-cell {
+    padding: 16px 22px;
+    font-size: 15px;
+    line-height: 1.45;
+    color: #3F4A60;
+  }
+  .comp-cell:first-child {
+    background: #F8FAFC;
+    font-weight: 600;
+    color: #0E1726;
+  }
+  .comp-row.us .comp-cell:first-child { background: #ECFDF9; color: #0F8C7E; }
+
+  /* ---------- Business model cards ---------- */
+  .bm-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35in;
+    margin-top: 0.22in;
+  }
+  .bm-card {
+    background: #F8FAFC;
+    border: 1px solid #E5EAF2;
+    border-radius: 12px;
+    padding: 22px 26px;
+  }
+  .bm-card.accent {
+    background: #ECFDF9;
+    border-color: #14B8A6;
+  }
+  .bm-tag {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #14B8A6;
+    margin-bottom: 8px;
+  }
+  .bm-card h3 { font-size: 19px; margin-bottom: 8px; }
+  .bm-card p { font-size: 15px; line-height: 1.5; color: #3F4A60; }
+  .bm-acv {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #E5EAF2;
+    font-size: 13px;
+    color: #14B8A6;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .bm-card.accent .bm-acv { border-top-color: #B7EFE3; }
+
+  /* ---------- Team & ask ---------- */
+  .ta-grid {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr;
+    gap: 0.5in;
+    margin-top: 0.25in;
+  }
+  .team-block h3 { font-size: 22px; margin-bottom: 14px; }
+  .team-block p { font-size: 16px; line-height: 1.55; color: #3F4A60; }
+  .ask-card {
+    background: linear-gradient(135deg, #0E1726 0%, #1A2A4A 100%);
+    color: white;
+    border-radius: 14px;
+    padding: 28px 30px;
+  }
+  .ask-card .ask-amount {
+    font-size: 60px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #14B8A6;
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .ask-card .ask-line {
+    font-size: 16px;
+    color: #B0C0DC;
+    margin-bottom: 18px;
+  }
+  .ask-card ul.clean li {
+    color: #DDE5F2;
+    font-size: 14px;
+    padding: 6px 0 6px 20px;
+  }
+  .ask-card ul.clean li::before {
+    background: #14B8A6;
+    width: 6px;
+    height: 6px;
+    top: 15px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== Slide 1: Title ========== -->
+<section class="slide title">
+  <div class="eyebrow">HMS · HUMAN-MACHINE SYMPATHY</div>
+  <div class="accent-bar"></div>
+  <h1>Make systems legible<br>to humans and to AI.</h1>
+  <p class="tag">HMS is three products on one semantic foundation: <strong style="color:#14B8A6">DataPro</strong>, <strong style="color:#14B8A6">DataMCP</strong>, and <strong style="color:#14B8A6">DataViz</strong> — a unified, deterministic, queryable view of your entire stack.</p>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>Investor Overview · 2026</span>
+  </div>
+</section>
+
+<!-- ========== Slide 2: The Problem ========== -->
+<section class="slide">
+  <div class="eyebrow">THE PROBLEM</div>
+  <h2>Companies don't have an observability problem.<br>They have a <em>context</em> problem.</h2>
+  <p class="lede">Engineers piece together what's happening from a dozen disconnected places — Datadog, Grafana, Databricks, Jupyter, log files, custom UIs, Slack, runbooks, repos.</p>
+  <div class="grid-3">
+    <div class="card">
+      <div class="num">01</div>
+      <h3>Knowledge is scattered</h3>
+      <p>Each tool sees one slice. Nobody sees the system as a whole.</p>
+    </div>
+    <div class="card">
+      <div class="num">02</div>
+      <h3>Onboarding takes years</h3>
+      <p>Building intuition for a complex system takes hundreds of hours per engineer — and never compounds across teams.</p>
+    </div>
+    <div class="card">
+      <div class="num">03</div>
+      <h3>Incidents take hours</h3>
+      <p>"What is this service? Who owns it? Has this happened before?" Should be seconds. Are routinely hours.</p>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>02</span>
+  </div>
+</section>
+
+<!-- ========== Slide 3: The Bigger Problem ========== -->
+<section class="slide">
+  <div class="eyebrow">A LARGER PROBLEM HIDING UNDERNEATH</div>
+  <h2>AI agents inherit the same chaos —<br>and they can't reason their way out.</h2>
+  <p class="lede">Every AI agent built for ops, incident response, or developer productivity hits the same wall: it doesn't actually <em>understand</em> the system it's operating on.</p>
+  <div class="contrast">
+    <div class="col-bad">
+      <div class="col-label">Today's AI agents</div>
+      <h3>Stitching, guessing, hallucinating</h3>
+      <ul>
+        <li>Call random APIs and databases directly</li>
+        <li>Generate brittle SQL and PromQL on the fly</li>
+        <li>Guess relationships that aren't documented</li>
+        <li>Hallucinate connections between services</li>
+        <li>No memory of what's true vs. inferred</li>
+      </ul>
+    </div>
+    <div class="col-good">
+      <div class="col-label">What they need</div>
+      <h3>A trustworthy semantic layer</h3>
+      <ul>
+        <li>Ask for an entity by name, get the truth</li>
+        <li>Follow named relationships, not column joins</li>
+        <li>Field-level provenance, not raw values</li>
+        <li>Bounded, predictable query behavior</li>
+        <li>One API, every system in the company</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>03</span>
+  </div>
+</section>
+
+<!-- ========== Slide 4: The Insight (hero) ========== -->
+<section class="slide hero">
+  <div class="eyebrow">THE INSIGHT</div>
+  <h1>Make systems legible.</h1>
+  <p class="tag">Both humans and AI struggle with the same thing: the data exists, but it isn't structured, connected, or trustworthy. Build that layer once — and everyone wins.</p>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>04</span>
+  </div>
+</section>
+
+<!-- ========== Slide 5: The Solution — Three Products ========== -->
+<section class="slide">
+  <div class="eyebrow">THE SOLUTION</div>
+  <h2>HMS is three products.<br>One semantic foundation.</h2>
+  <p class="lede">Each product serves a different consumer. They share the same core, so adding one strengthens the others.</p>
+  <div class="grid-3">
+    <div class="card" style="background:#0E1726; border-color:#0E1726;">
+      <div class="num" style="color:#14B8A6;">FOUNDATION · PHASE 1</div>
+      <h3 style="color:white;">DataPro</h3>
+      <p style="color:#B0C0DC;"><strong style="color:white;">The semantic data layer.</strong> Turns scattered sources into typed objects with identity, relationships, and provenance. Deterministic runtime. The foundation everything else stands on.</p>
+    </div>
+    <div class="card" style="background:#ECFDF9; border-color:#14B8A6;">
+      <div class="num">AGENT INTERFACE · PHASE 2</div>
+      <h3>DataMCP</h3>
+      <p><strong>The AI agent surface.</strong> Exposes DataPro through the Model Context Protocol so AI agents can ask structured questions about systems — and get reliable, bounded, provenance-tracked answers.</p>
+    </div>
+    <div class="card">
+      <div class="num">HUMAN INTERFACE · PHASE 3</div>
+      <h3>DataViz</h3>
+      <p><strong>The 2D spatial dashboard.</strong> Lets engineers pan, zoom, and explore their entire system as a navigable map — building intuition the way humans actually think about space.</p>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>05</span>
+  </div>
+</section>
+
+<!-- ========== Slide 6: User Story ========== -->
+<section class="slide">
+  <div class="eyebrow">USER STORY · A NIGHT ON CALL</div>
+  <h2>One question. Two worlds.</h2>
+  <p class="lede"><em>"Why is checkout-pricing failing?"</em></p>
+  <div class="story-grid">
+    <div class="story-col before">
+      <div class="story-time">3:14 AM</div>
+      <div class="story-tag">WITHOUT HMS</div>
+      <div class="story-body">
+        Page fires. Open Datadog. Switch to Grafana. Open the K8s dashboard, then the deploy log, then the monorepo. Search Slack. Ping the owner — who's asleep. Check the incident channel from last week. Skim a runbook that's two years out of date. Cross-reference three timestamps in three different timezones. The fix turns out to be a one-line config flag from a deploy 8 hours earlier.
+      </div>
+      <div class="story-stat">Time to resolve: 47 minutes</div>
+    </div>
+    <div class="story-col after">
+      <div class="story-time">3:14 AM</div>
+      <div class="story-tag">WITH HMS</div>
+      <div class="story-body">
+        Page fires. The on-call AI copilot calls <strong>DataMCP</strong> for the <strong>checkout-pricing</strong> object. <strong>DataPro</strong> assembles a single resolved view: current status, last 3 deployments, dependencies, recent error metrics, and the engineer who shipped the change. The copilot proposes the rollback. The human reviews it in <strong>DataViz</strong> and clicks approve.
+      </div>
+      <div class="story-stat">Time to resolve: 90 seconds</div>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>06</span>
+  </div>
+</section>
+
+<!-- ========== Slide 7: Three layers of value ========== -->
+<section class="slide">
+  <div class="eyebrow">WHY HMS · THREE LAYERS</div>
+  <h2>The 3am story is one of three reasons<br>companies adopt HMS.</h2>
+  <p class="lede" style="margin-top:0.18in;">Defense first. Offense follows.</p>
+  <div class="grid-3">
+    <div class="card">
+      <div class="num">DEFENSE I · INSTITUTIONAL MEMORY</div>
+      <h3>The senior engineer leaves. The system still knows what they knew.</h3>
+      <p>Every connector configuration, link declaration, identity rule, and safety contract is captured as the side effect of using HMS — durable, reviewable, version-controlled. The new hire's first day starts with a working system and an AI agent that can answer questions about it, not a treasure hunt across six tools and three departed teammates.</p>
+      <p style="color:#64748B; font-size:13px; margin-top:10px;">Mapped to <strong>DataPro</strong> — the configurations are the institutional record.</p>
+    </div>
+    <div class="card" style="background:#ECFDF9; border-color:#14B8A6;">
+      <div class="num">DEFENSE II · INCIDENT RESPONSE</div>
+      <h3>At 3am you ask one question — and HMS answers it.</h3>
+      <p>The user story you just saw. In an incident, the bottleneck is reach, not data. HMS replaces three engineers in three Slack channels writing their own ad-hoc SQL with one conversational, visual surface. Safety contracts mean even broad questions don't take down the source systems.</p>
+      <p style="color:#0F766E; font-size:13px; margin-top:10px;">Mapped to <strong>DataMCP + DataViz</strong> on the <strong>DataPro</strong> substrate.</p>
+    </div>
+    <div class="card">
+      <div class="num">OFFENSE · COMPLEXITY MAP</div>
+      <h3>Adding a service is a contained operation, not a tax on the whole org.</h3>
+      <p>Complexity tax compounds — every new service adds N "how does this relate to..." conversations, and N grows superlinearly. With HMS, adding a service is one connector + a few link declarations. The link store becomes your company's complexity map: explicit, queryable, evolvable. Also the substrate AI agents need to reason about the system.</p>
+      <p style="color:#64748B; font-size:13px; margin-top:10px;">Mapped to <strong>all three products</strong> — especially the link layer.</p>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>07</span>
+  </div>
+</section>
+
+<!-- ========== Slide 8: Technical example ========== -->
+<section class="slide">
+  <div class="eyebrow">UNDER THE HOOD · DATAPRO</div>
+  <h2>What a DataPro query actually looks like.</h2>
+  <div class="tech-grid">
+    <div class="tech-block">
+      <div class="tech-label">Query</div>
+      <div class="code"><span class="c">// One question, no SQL, no PromQL</span>
+{
+  <span class="k">"from"</span>: <span class="s">"AppInstance"</span>,
+  <span class="k">"where"</span>: { <span class="k">"name"</span>: <span class="s">"checkout-pricing"</span> },
+  <span class="k">"include"</span>: {
+    <span class="k">"host"</span>: <span class="b">true</span>,
+    <span class="k">"owner"</span>: <span class="b">true</span>,
+    <span class="k">"recent_deployments"</span>: {
+      <span class="k">"within"</span>: <span class="s">"24h"</span>
+    },
+    <span class="k">"metrics"</span>: {
+      <span class="k">"names"</span>: [<span class="s">"error_rate"</span>, <span class="s">"latency_p99"</span>],
+      <span class="k">"within"</span>: <span class="s">"1h"</span>
+    }
+  }
+}</div>
+    </div>
+    <div class="tech-block">
+      <div class="tech-label">Response — assembled from 4 backends</div>
+      <div class="code">{
+  <span class="k">"type"</span>: <span class="s">"AppInstance"</span>,
+  <span class="k">"id"</span>: <span class="s">"prod/checkout-pricing"</span>,
+  <span class="k">"status"</span>: <span class="s">"degraded"</span>,        <span class="c">// from K8s</span>
+  <span class="k">"owner"</span>: <span class="s">"payments-team"</span>,    <span class="c">// from Postgres</span>
+  <span class="k">"host"</span>: { <span class="k">"id"</span>: <span class="s">"h-918"</span>, <span class="k">"region"</span>: <span class="s">"us-east-1"</span> },
+  <span class="k">"recent_deployments"</span>: [
+    { <span class="k">"sha"</span>: <span class="s">"a3f1e9"</span>, <span class="k">"at"</span>: <span class="s">"2026-04-28T19:02Z"</span>,
+      <span class="k">"author"</span>: <span class="s">"jane@..."</span> }   <span class="c">// from Git</span>
+  ],
+  <span class="k">"metrics"</span>: {                          <span class="c">// from VictoriaMetrics</span>
+    <span class="k">"error_rate"</span>: <span class="n">0.12</span>,
+    <span class="k">"latency_p99_ms"</span>: <span class="n">2840</span>
+  },
+  <span class="k">"_provenance"</span>: { <span class="k">"all_fields"</span>: <span class="s">"ok"</span> }
+}</div>
+    </div>
+  </div>
+  <p class="tech-note"><strong>The hard part isn't the syntax</strong> — it's resolving identity across sources, planning the joins via a link store, enforcing query safety contracts, and assembling a provenance-tracked result. That's DataPro. <strong>DataMCP</strong> exposes this same shape over MCP for AI agents; <strong>DataViz</strong> renders it spatially for humans.</p>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>08</span>
+  </div>
+</section>
+
+<!-- ========== Slide 8: Architecture ========== -->
+<section class="slide">
+  <div class="eyebrow">HOW IT WORKS · THE HMS STACK</div>
+  <h2>Three products, layered.</h2>
+  <div class="arch">
+    <div class="arch-row">
+      <div class="arch-block">
+        <h4>Engineers</h4>
+        <p>Pan, zoom, explore systems visually</p>
+      </div>
+      <div class="arch-block">
+        <h4>AI agents</h4>
+        <p>Copilots, autonomous ops, in-product assistants</p>
+      </div>
+    </div>
+    <div class="arch-arrow">↓</div>
+    <div class="arch-row">
+      <div class="arch-block accent">
+        <h4>DataViz <span style="font-size:11px; color:#0F8C7E; font-weight:600; letter-spacing:0.1em; margin-left:6px;">HUMAN UI</span></h4>
+        <p>2D spatial dashboard. Built on DataPro.</p>
+      </div>
+      <div class="arch-block accent">
+        <h4>DataMCP <span style="font-size:11px; color:#0F8C7E; font-weight:600; letter-spacing:0.1em; margin-left:6px;">AGENT API</span></h4>
+        <p>Model Context Protocol surface. Built on DataPro.</p>
+      </div>
+    </div>
+    <div class="arch-arrow">↓</div>
+    <div class="arch-row">
+      <div class="arch-block dark" style="flex: 2;">
+        <h4>DataPro <span style="font-size:11px; color:#14B8A6; font-weight:600; letter-spacing:0.1em; margin-left:6px;">FOUNDATION</span></h4>
+        <p>Semantic objects · Named relationships · Identity resolution · Safety contracts · Field-level provenance</p>
+      </div>
+    </div>
+    <div class="arch-arrow">↓</div>
+    <div class="arch-row">
+      <div class="arch-block">
+        <h4>Postgres / Mongo</h4>
+        <p>Operational data</p>
+      </div>
+      <div class="arch-block">
+        <h4>K8s / cloud APIs</h4>
+        <p>Infrastructure state</p>
+      </div>
+      <div class="arch-block">
+        <h4>VictoriaMetrics / Prometheus</h4>
+        <p>Time series</p>
+      </div>
+      <div class="arch-block">
+        <h4>Repos / files / wikis</h4>
+        <p>Documents and config</p>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>09</span>
+  </div>
+</section>
+
+<!-- ========== Slide 9: Use cases ========== -->
+<section class="slide">
+  <div class="eyebrow">WHAT IT UNLOCKS</div>
+  <h2>One layer. Many products on top.</h2>
+  <div class="grid-2">
+    <div class="card">
+      <div class="num">VIA DATAMCP</div>
+      <h3>Incident response copilots</h3>
+      <p>"Why is this service failing?" Agents traverse dependencies, recent deployments, and metrics through one API — instead of calling six tools and guessing.</p>
+    </div>
+    <div class="card">
+      <div class="num">VIA DATAVIZ</div>
+      <h3>Engineering onboarding</h3>
+      <p>New engineers explore their company's systems through a 2D spatial map — building intuition in days, not months.</p>
+    </div>
+    <div class="card">
+      <div class="num">VIA DATAPRO</div>
+      <h3>Custom internal tools</h3>
+      <p>Teams build the dashboards they actually need against one consistent backend — no more bespoke data fetchers per tool.</p>
+    </div>
+    <div class="card">
+      <div class="num">VIA DATAMCP</div>
+      <h3>Autonomous ops agents</h3>
+      <p>Long-running agents that monitor, investigate, and act — anchored to a single, deterministic source of truth.</p>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>10</span>
+  </div>
+</section>
+
+<!-- ========== Slide 10: Why we win (defensibility + competition) ========== -->
+<section class="slide">
+  <div class="eyebrow">WHY WE WIN</div>
+  <h2>Everyone else owns a slice.<br>HMS owns the layer above them.</h2>
+  <div class="comp-table">
+    <div class="comp-row head">
+      <div class="comp-cell">Category</div>
+      <div class="comp-cell">Example</div>
+      <div class="comp-cell">What they don't do</div>
+    </div>
+    <div class="comp-row">
+      <div class="comp-cell">Telemetry &amp; dashboards</div>
+      <div class="comp-cell">Datadog, Grafana, New Relic</div>
+      <div class="comp-cell">No semantic model. No cross-source object identity. AI-hostile.</div>
+    </div>
+    <div class="comp-row">
+      <div class="comp-cell">SQL federation engines</div>
+      <div class="comp-cell">Trino, Presto, Starburst</div>
+      <div class="comp-cell">Raw SQL surface. No object model, no link semantics, no safety contracts.</div>
+    </div>
+    <div class="comp-row">
+      <div class="comp-cell">Service catalogs</div>
+      <div class="comp-cell">Backstage, Cortex</div>
+      <div class="comp-cell">Static metadata only. Don't query live data, no AI-native interface.</div>
+    </div>
+    <div class="comp-row">
+      <div class="comp-cell">Bespoke internal tools</div>
+      <div class="comp-cell">Every large eng org</div>
+      <div class="comp-cell">The fragmented status quo HMS replaces.</div>
+    </div>
+    <div class="comp-row us">
+      <div class="comp-cell">HMS</div>
+      <div class="comp-cell">DataPro · DataMCP · DataViz</div>
+      <div class="comp-cell">Semantic objects · Identity resolution · Link store · Safety contracts · MCP-native by design</div>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>11</span>
+  </div>
+</section>
+
+<!-- ========== Slide 11: Why now ========== -->
+<section class="slide">
+  <div class="eyebrow">WHY NOW</div>
+  <h2>Three timing windows, all open at once.</h2>
+  <div class="grid-3">
+    <div class="card">
+      <div class="num">2026 — AI AGENTS</div>
+      <h3>The agent ecosystem is real</h3>
+      <p>MCP, tool-use, multi-step agents — all maturing fast. They desperately need structured, trustworthy context.</p>
+    </div>
+    <div class="card">
+      <div class="num">FATIGUE</div>
+      <h3>Observability is broken</h3>
+      <p>CTOs are openly tired of stitching five vendors to answer one question. The market wants one layer above all of them.</p>
+    </div>
+    <div class="card">
+      <div class="num">FOUNDATIONS</div>
+      <h3>The substrate finally exists</h3>
+      <p>Trino, MCP, modern agent frameworks — heavy infra is now off-the-shelf. We focus on the semantic layer.</p>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>12</span>
+  </div>
+</section>
+
+<!-- ========== Slide 12: Market ========== -->
+<section class="slide">
+  <div class="eyebrow">MARKET</div>
+  <h2>A wedge into three converging markets.</h2>
+  <div class="market-grid">
+    <div class="market-card">
+      <div class="market-tier">TAM</div>
+      <div class="market-num">$85B</div>
+      <div class="market-label">Observability + DevOps + AI infra</div>
+      <div class="market-body">Observability ($60B by 2028), internal developer platforms, and emerging AI agent infrastructure — all growing double-digit annually.</div>
+    </div>
+    <div class="market-card highlight">
+      <div class="market-tier">SAM</div>
+      <div class="market-num">$8B</div>
+      <div class="market-label">Mid-market &amp; enterprise eng orgs</div>
+      <div class="market-body">~30K companies globally with 50+ engineers and material multi-source data sprawl. Average willingness-to-pay: $30–500K ACV.</div>
+    </div>
+    <div class="market-card">
+      <div class="market-tier">SOM (Year 3)</div>
+      <div class="market-num">$120M</div>
+      <div class="market-label">AI-forward eng teams</div>
+      <div class="market-body">Initial wedge: companies actively building AI agents on their internal systems. Underserved, fast-moving, willing to pay early.</div>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>13</span>
+  </div>
+</section>
+
+<!-- ========== Slide 13: Business model ========== -->
+<section class="slide">
+  <div class="eyebrow">BUSINESS MODEL</div>
+  <h2>Two on-ramps, one platform.</h2>
+  <div class="bm-grid">
+    <div class="bm-card accent">
+      <div class="bm-tag">PRIMARY · CLOUD SAAS</div>
+      <h3>Per-source &amp; per-seat pricing</h3>
+      <p>Hosted HMS Core + Dashboard. Tiered by number of connected data sources, query volume, and engineer seats. Self-serve for small teams, sales-assisted for enterprise.</p>
+      <div class="bm-acv">TARGET ACV · $30K–$120K</div>
+    </div>
+    <div class="bm-card">
+      <div class="bm-tag">ENTERPRISE · SELF-HOSTED</div>
+      <h3>Annual license + support</h3>
+      <p>For regulated and large enterprise customers running HMS on their own infrastructure. Includes premium connectors, identity integration, and dedicated support.</p>
+      <div class="bm-acv">TARGET ACV · $150K–$500K+</div>
+    </div>
+  </div>
+  <p class="lede" style="margin-top:0.22in; font-size: 17px;">An open-source HMS Core seeds bottom-up adoption inside engineering teams; commercial features (Dashboard, AI agents, premium connectors, multi-tenant identity, SLAs) drive revenue.</p>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>14</span>
+  </div>
+</section>
+
+<!-- ========== Slide 14: Roadmap ========== -->
+<section class="slide">
+  <div class="eyebrow">ROADMAP</div>
+  <h2>A thin wedge that compounds.</h2>
+  <p class="lede" style="font-size: 18px;">Each phase ships a real product. Each one makes the next more valuable.</p>
+  <div class="roadmap">
+    <div class="road-item">
+      <div class="road-phase">PHASE 1 — NOW</div>
+      <div class="road-title">DataPro</div>
+      <div class="road-body">The deterministic semantic data layer. One query, multi-source results. Tools and design partners build on the API.</div>
+    </div>
+    <div class="road-item">
+      <div class="road-phase">PHASE 2 — NEXT</div>
+      <div class="road-title">DataMCP</div>
+      <div class="road-body">MCP interface for AI agents. Cleanest early demo: an AI copilot debugging incidents through HMS.</div>
+    </div>
+    <div class="road-item">
+      <div class="road-phase">PHASE 3</div>
+      <div class="road-title">DataViz</div>
+      <div class="road-body">2D spatial dashboard built on DataPro. Maps you can pan, zoom, and remember.</div>
+    </div>
+    <div class="road-item">
+      <div class="road-phase">PHASE 4</div>
+      <div class="road-title">Ecosystem</div>
+      <div class="road-body">Marketplace of connectors, object types, and link packs across all three products. Network effects compound.</div>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>15</span>
+  </div>
+</section>
+
+<!-- ========== Slide 15: Team & Ask ========== -->
+<section class="slide">
+  <div class="eyebrow">TEAM &amp; ASK</div>
+  <h2>What we've done. What we need.</h2>
+  <div class="ta-grid">
+    <div class="team-block">
+      <h3>The team</h3>
+      <p style="margin-bottom: 14px;"><strong>[Founder name]</strong> — [Background: prior role, notable systems shipped, why-this-why-now credibility].</p>
+      <p style="margin-bottom: 14px;"><strong>[Co-founder name]</strong> — [Background, complementary expertise, prior collaboration with founder].</p>
+      <p style="margin-bottom: 14px;"><strong>Advisors</strong> — [List, especially anyone with infra, observability, or AI-agent credibility].</p>
+      <p style="color:#6A7693; font-size:14px; font-style: italic;">Replace this slide with your real team narrative — focus on why <em style="font-style:normal">this</em> team is uniquely suited to build HMS.</p>
+    </div>
+    <div class="ask-card">
+      <div style="font-size: 11px; font-weight: 700; letter-spacing: 0.18em; color: #14B8A6; margin-bottom: 8px;">THE ASK</div>
+      <div class="ask-amount">$3M</div>
+      <div class="ask-line">Seed round · 18 months runway</div>
+      <ul class="clean">
+        <li>Ship DataPro + first 4 connectors</li>
+        <li>Launch DataMCP for the agent ecosystem</li>
+        <li>10 design-partner deployments</li>
+        <li>First $500K ARR</li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer">
+    <span class="brand">HMS</span>
+    <span>16</span>
+  </div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  DataPro Flex Trino connector.
+
+  This plugin dispatches connector callbacks to a per-catalog Python worker
+  subprocess over Arrow Flight. The worker module implements two callables
+  (get_tables, read_table); splitting and column projection are handled by
+  the framework, not the module. Each catalog points at a Python module on
+  disk via the `flex.module_path` property; the module implements the
+  contract documented in `flex/runtime/src/datapro_flex/contract.py`.
+
+  Build produces:
+    target/trino-flex-connector-<version>.jar         — the plugin's own classes
+    target/plugin/*.jar                                — runtime deps (Arrow + Jackson + …)
+
+  Both are copied into the custom Trino image at /usr/lib/trino/plugin/flex/.
+  Trino loads everything in that directory into an isolated classloader, so
+  Arrow's transitive deps don't collide with Trino's own.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>ai.hms</groupId>
+    <artifactId>trino-flex-connector</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <trino.version>480</trino.version>
+        <arrow.version>18.1.0</arrow.version>
+        <jackson.version>2.18.2</jackson.version>
+    </properties>
+
+    <dependencies>
+        <!-- Trino's SPI is provided by the runtime; classloader picks Trino's copy. -->
+        <dependency>
+            <groupId>io.trino</groupId>
+            <artifactId>trino-spi</artifactId>
+            <version>${trino.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>slice</artifactId>
+            <version>2.7</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Arrow Flight: Java client talks to the Python worker over gRPC.
+             arrow-flight pulls in arrow-vector, arrow-memory-core, gRPC, etc. -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>flight-core</artifactId>
+            <version>${arrow.version}</version>
+        </dependency>
+        <!-- Off-heap memory backend for Arrow. Netty-based is the most portable
+             choice; the alternative `arrow-memory-unsafe` needs JVM flags. -->
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-netty</artifactId>
+            <version>${arrow.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- JSON serialization for action bodies (get_tables / get_splits) and
+             for the constraint envelope going Java→Python. Arrow Flight bodies
+             are binary; the request/response *metadata* travels as JSON. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.14.0</version>
+                <configuration>
+                    <release>${maven.compiler.release}</release>
+                </configuration>
+            </plugin>
+
+            <!-- Stage runtime deps into target/plugin/ so the Trino-image
+                 Dockerfile can `COPY target/plugin/. /usr/lib/trino/plugin/flex/`
+                 in one line. `provided` deps are deliberately excluded — they
+                 come from Trino itself. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-runtime-deps</id>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>copy-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/plugin</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

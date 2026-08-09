@@ -1,0 +1,41 @@
+name: hms-ai
+
+# AI is single-instance by design (matches Core; see ../core/README.md § Deployment model).
+# Do not scale the `ai` service to >1 replicas — the agent loop holds in-memory state per
+# request and conversations are not designed for cross-process coordination.
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: hms-ai-postgres
+    environment:
+      POSTGRES_DB: datapro_ai
+      POSTGRES_USER: datapro
+      POSTGRES_PASSWORD: datapro
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U datapro -d datapro_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ai:
+    build: .
+    container_name: hms-ai
+    environment:
+      DATABASE_URL: postgresql+psycopg://datapro:datapro@postgres:5432/datapro_ai
+      CORE_URL: http://host.docker.internal:5001
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    ports:
+      - "5002:5002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  postgres_data:

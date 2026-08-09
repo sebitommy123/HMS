@@ -1,0 +1,9 @@
+# Without this the trino-flex Dockerfile sends the entire repo to the
+# Docker daemon (52GB+). Only the paths the Dockerfile COPYs are needed.
+*
+
+# Allow only what the Dockerfile actually references:
+!flex/runtime/pyproject.toml
+!flex/runtime/src
+!flex/connector/target/trino-flex-connector-0.1.0.jar
+!flex/connector/target/plugin

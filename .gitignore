@@ -1,0 +1,56 @@
+# ---- Secrets (NEVER commit) ----
+ai/key.sh
+.env
+*.env
+*.pem
+*.key
+id_rsa*
+**/secrets.*
+
+# ---- Python ----
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+.pytest-flex-modules/
+
+# ---- Node / UI ----
+node_modules/
+ui/dist/
+*.tsbuildinfo
+
+# ---- Java / Maven ----
+.m2/
+target/
+
+# ---- Runtime / generated ----
+.dev-logs/
+# Core materializes flex module .py files here at runtime
+datapro/flex-modules/*.py
+
+# ---- OS / editor ----
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# ---- Local Claude settings (keep CLAUDE.md, drop local overrides) ----
+.claude/settings.local.json
+
+# ---- Datasets: large third-party downloaded/extracted data (49GB).
+#      Keep only the small scaffolding (compose, scripts, docs). ----
+datasets/**
+!datasets/**/
+!datasets/**/*.md
+!datasets/**/*.yml
+!datasets/**/*.yaml
+!datasets/**/*.sh
+!datasets/**/*.sql
+!datasets/**/*.py
+!datasets/**/*.toml
+!datasets/**/Dockerfile
+!datasets/**/.gitignore

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "datapro-flex"
+version = "0.1.0"
+description = "DataPro Flex contract + Arrow Flight worker. Users author modules against datapro_flex.contract; the worker hosts them for the Trino flex connector."
+requires-python = ">=3.12"
+dependencies = [
+  # Arrow + Flight: same wire format as the Java side. Pin to the
+  # matching Arrow major version as `flex/connector/pom.xml`.
+  "pyarrow>=18.1,<19",
+  # Flight uses gRPC for transport.
+  "grpcio>=1.66",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/datapro_flex"]

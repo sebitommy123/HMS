@@ -1,0 +1,23 @@
+services:
+  sec-edgar-postgres:
+    image: postgres:16-alpine
+    container_name: hms-sec-edgar-postgres
+    environment:
+      POSTGRES_USER: sec
+      POSTGRES_PASSWORD: sec
+      POSTGRES_DB: sec_edgar
+    ports:
+      - "55432:5432"
+    volumes:
+      - sec_edgar_pgdata:/var/lib/postgresql/data
+      - ../extracted:/data/sec-edgar/extracted:ro
+      - ./init:/docker-entrypoint-initdb.d:ro
+      - ./scripts:/scripts:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sec -d sec_edgar"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  sec_edgar_pgdata:
