@@ -112,35 +112,91 @@ def _union_branch(
 
 # ---- Identity-JOIN strategy --------------------------------------------
 
+# Name of the CTE that bounds the identity key set before the join.
+_KEYS_CTE = "_identity_keys"
+
 
 def _build_identity_join(plan: QueryPlan) -> str:
-    """Emit a FULL OUTER JOIN chain across factories, joining on the
-    identity column each factory designates in ``trait_config.identity.column``.
+    """Emit a FULL OUTER JOIN across factories, joining on the identity column
+    each factory designates in ``trait_config.identity.column``.
 
-    Per the prefix-with-source conflict policy, every non-identity
-    column from each branch is renamed to ``<col>__<data_source_path>``
-    so cross-factory same-named columns don't collide on the way out.
+    Per the prefix-with-source conflict policy, every non-identity column from
+    each branch is renamed to ``<col>__<data_source_path>`` so cross-factory
+    same-named columns don't collide on the way out.
+
+    **Limit is bounded before the join.** ``LIMIT N`` on the outer SELECT means
+    "at most N distinct identities". A FULL OUTER JOIN is a limit-blocking
+    operator — Trino can't push the outer LIMIT below it, so a naive
+    ``... JOIN ... LIMIT N`` scans *both entire tables* before the cap applies
+    (the pathology the perf suite's identity scenario captures). Instead we
+    first pick ≤N identity keys via a cheap single-column CTE (Trino pushes the
+    LIMIT into each Postgres scan), then fetch only those keys' rows per branch
+    (indexed / dynamic-filtered) and join *those*. Since the outer LIMIT is
+    unordered, "any N identities" is semantically equivalent to join-then-limit,
+    but the heavy full scan + full join is eliminated.
+
+    Rows with a NULL identity are dropped: they can't participate in a merge
+    (NULL never matches a join key), so they were never joinable objects.
     """
-    branches: list[tuple[FactoryPlan, str]] = []
-    for f in plan.factories:
-        identity_col = _identity_column(f)
-        inner_select = _identity_branch_inner(f, identity_col)
-        branches.append((f, inner_select))
+    branches_meta = [(f, _identity_column(f)) for f in plan.factories]
+    limit = int(plan.query.limit)
 
-    # First branch as base; subsequent branches FULL OUTER JOIN USING
-    # (_identity). USING collapses the join keys into a single column,
-    # so the join chain composes cleanly for N factories.
-    first_factory, first_inner = branches[0]
+    # Single factory: no join to block pushdown. The outer LIMIT pushes cleanly
+    # through the one subquery to the table scan, so leave the simple shape.
+    if len(branches_meta) == 1:
+        factory, identity_col = branches_meta[0]
+        inner = _identity_branch_inner(factory, identity_col)
+        return (
+            f"SELECT *\n  FROM ({inner}) AS {_alias_for(factory, 0)}\n"
+            f"  LIMIT {limit}"
+        )
+
+    key_filter = f"IN (SELECT _identity FROM {_KEYS_CTE})"
+    joined = _join_branches(branches_meta, key_filter=key_filter)
+    return (
+        f"WITH {_KEYS_CTE} AS (\n{_identity_keys_cte(branches_meta, limit)}\n)\n"
+        f"SELECT *\n  FROM {joined}\n  LIMIT {limit}"
+    )
+
+
+def _identity_keys_cte(
+    branches_meta: list[tuple[FactoryPlan, str]], limit: int
+) -> str:
+    """Bounded set of identity keys: ``UNION`` each factory's identity column
+    (a single narrow column Trino can read with the LIMIT pushed into Postgres),
+    then cap at ``limit``. UNION (not UNION ALL) de-dupes so the cap counts
+    distinct identities."""
+    selects = [
+        f'    SELECT "{identity_col}" AS _identity FROM {_quote_path(f.data_source_path)}'
+        for (f, identity_col) in branches_meta
+    ]
+    union = "\n    UNION\n".join(selects)
+    return (
+        f"  SELECT _identity FROM (\n{union}\n  ) AS _all_keys\n"
+        f"  WHERE _identity IS NOT NULL\n"
+        f"  LIMIT {limit}"
+    )
+
+
+def _join_branches(
+    branches_meta: list[tuple[FactoryPlan, str]], *, key_filter: str | None
+) -> str:
+    """FULL OUTER JOIN the branches USING (_identity). USING collapses the join
+    keys into a single column, so the chain composes cleanly for N factories.
+    ``key_filter`` (e.g. ``IN (SELECT _identity FROM _identity_keys)``), when
+    given, restricts each branch's scan to the bounded key set."""
+    rendered = [
+        (f, _identity_branch_inner(f, identity_col, key_filter=key_filter))
+        for (f, identity_col) in branches_meta
+    ]
+    first_factory, first_inner = rendered[0]
     sql = f"({first_inner}) AS {_alias_for(first_factory, 0)}"
-    for i, (factory, inner) in enumerate(branches[1:], start=1):
+    for i, (factory, inner) in enumerate(rendered[1:], start=1):
         sql += (
             f"\n  FULL OUTER JOIN ({inner}) AS {_alias_for(factory, i)} "
             f"USING (_identity)"
         )
-
-    return (
-        f"SELECT *\n  FROM {sql}\n  LIMIT {int(plan.query.limit)}"
-    )
+    return sql
 
 
 def _identity_column(factory: FactoryPlan) -> str:
@@ -157,12 +213,19 @@ def _identity_column(factory: FactoryPlan) -> str:
     return column
 
 
-def _identity_branch_inner(factory: FactoryPlan, identity_col: str) -> str:
+def _identity_branch_inner(
+    factory: FactoryPlan, identity_col: str, *, key_filter: str | None = None
+) -> str:
     """Per-branch SELECT for Identity-join strategy. Aliases:
       - the identity column → ``_identity`` (join key)
       - the ``_datasource`` literal → ``_datasource__<path>`` (presence
         indicator after outer join)
       - every other column → ``<col>__<path>`` (no cross-factory collisions)
+
+    ``key_filter`` (e.g. ``IN (SELECT _identity FROM _identity_keys)``), when
+    given, is applied as ``WHERE "<identity_col>" <key_filter>`` on the raw
+    table scan so the restriction pushes down (dynamic filtering) instead of
+    scanning the whole table.
     """
     datasource_literal = _sql_string_literal(factory.data_source_path)
     qualified_table = _quote_path(factory.data_source_path)
@@ -184,8 +247,9 @@ def _identity_branch_inner(factory: FactoryPlan, identity_col: str) -> str:
     for col in other_cols:
         projections.append(f'"{col}" AS "{col}{suffix}"')
 
+    where = f' WHERE "{identity_col}" {key_filter}' if key_filter else ""
     user_select = _user_select_list(factory.use_all_columns, factory.column_spec)
-    inner = f"SELECT {user_select} FROM {qualified_table}"
+    inner = f"SELECT {user_select} FROM {qualified_table}{where}"
     return (
         f"SELECT {', '.join(projections)} "
         f"FROM ({inner}) AS _branch"
