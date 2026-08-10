@@ -94,6 +94,17 @@ def semantic_query(
     return Outcome("ok", server, rows)
 
 
+def register_catalog(client, body: dict) -> Outcome:
+    """Register a catalog via POST /catalogs. The reconcile + data-source sync
+    runs synchronously inside this call, so timing it measures the sync path.
+    201 = ok; anything else is recorded as an error (never raises)."""
+    resp = client.post("/catalogs", json=body)
+    if resp.status_code == 201:
+        return Outcome("ok")
+    b = resp.get_json() or {}
+    return Outcome("error", detail=f"HTTP {resp.status_code}: {b.get('error')}")
+
+
 def raw_query(
     client, sql: str, *, timeout_seconds: int = 30, max_rows: int = 10_000
 ) -> Outcome:

@@ -8,43 +8,59 @@
   "scenarios": {
     "union_single_factory_small": {
       "status": "ok",
-      "p50_ms": 373.1,
-      "p95_ms": 502.7,
-      "server_elapsed_s": 0.091,
+      "p50_ms": 287.7,
+      "p95_ms": 385.0,
+      "server_elapsed_s": 0.057,
       "rows": 25,
       "budget_ms": 1500
     },
     "union_single_factory_large": {
       "status": "ok",
-      "p50_ms": 334.3,
-      "p95_ms": 467.2,
-      "server_elapsed_s": 0.237,
+      "p50_ms": 346.2,
+      "p95_ms": 539.3,
+      "server_elapsed_s": 0.104,
       "rows": 25,
       "budget_ms": 3000
     },
     "raw_trino_scan_large": {
       "status": "ok",
-      "p50_ms": 213.4,
-      "p95_ms": 277.2,
-      "server_elapsed_s": 0.207,
+      "p50_ms": 267.7,
+      "p95_ms": 446.8,
+      "server_elapsed_s": 0.259,
       "rows": 10000,
       "budget_ms": 3000
     },
     "raw_trino_count_large": {
       "status": "ok",
-      "p50_ms": 176.8,
-      "p95_ms": 231.4,
-      "server_elapsed_s": 0.243,
+      "p50_ms": 225.3,
+      "p95_ms": 284.5,
+      "server_elapsed_s": 0.224,
       "rows": 1,
       "budget_ms": 15000
     },
     "identity_join_two_factories_large": {
       "status": "ok",
-      "p50_ms": 1922.6,
-      "p95_ms": 2027.8,
-      "server_elapsed_s": 1.354,
+      "p50_ms": 3179.9,
+      "p95_ms": 4467.7,
+      "server_elapsed_s": 3.346,
       "rows": 25,
       "budget_ms": 5000
+    },
+    "identity_join_federated_two_postgres": {
+      "status": "ok",
+      "p50_ms": 1702.4,
+      "p95_ms": 2074.7,
+      "server_elapsed_s": 1.472,
+      "rows": 25,
+      "budget_ms": 5000
+    },
+    "catalog_sync_many_tables": {
+      "status": "ok",
+      "p50_ms": 1844.6,
+      "p95_ms": 1844.6,
+      "server_elapsed_s": null,
+      "rows": null,
+      "budget_ms": 10000
     }
   }
 }

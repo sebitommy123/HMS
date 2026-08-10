@@ -36,6 +36,7 @@ from datapro_core.trino_client import TrinoClient
 from . import harness
 
 PERF_PG_ALIAS = "perf-pg"
+PERF_PG_B_ALIAS = "perf-pg-b"
 PERF_PG_DB = "bench"
 PERF_PG_USER = "bench"
 PERF_PG_PASSWORD = "bench"
@@ -100,66 +101,105 @@ def _seed(pg: PostgresContainer, *, rows: int) -> None:
     """
     half = rows // 2
     with psycopg.connect(_dsn(pg), autocommit=True) as conn, conn.cursor() as cur:
-        # instruments_a: keys 1..rows
-        cur.execute("DROP TABLE IF EXISTS instruments_a")
-        cur.execute(
-            """
-            CREATE TABLE instruments_a (
-                optiver_id BIGINT PRIMARY KEY,
-                feedcode   TEXT   NOT NULL,
-                symbol     TEXT   NOT NULL,
-                strike     DOUBLE PRECISION
-            )
-            """
+        _create_instruments_a(cur, rows)
+        _create_instruments_b(cur, rows, half)
+        _create_instruments_small(cur)
+
+
+def _seed_b_backend(pg: PostgresContainer, *, rows: int) -> None:
+    """Seed ONLY instruments_b on a second Postgres backend, for the federated
+    (two genuinely separate databases) identity scenario."""
+    half = rows // 2
+    with psycopg.connect(_dsn(pg), autocommit=True) as conn, conn.cursor() as cur:
+        _create_instruments_b(cur, rows, half)
+
+
+def _create_instruments_a(cur, rows: int) -> None:
+    # keys 1..rows
+    cur.execute("DROP TABLE IF EXISTS instruments_a")
+    cur.execute(
+        """
+        CREATE TABLE instruments_a (
+            optiver_id BIGINT PRIMARY KEY,
+            feedcode   TEXT   NOT NULL,
+            symbol     TEXT   NOT NULL,
+            strike     DOUBLE PRECISION
         )
-        cur.execute(
-            f"""
-            INSERT INTO instruments_a (optiver_id, feedcode, symbol, strike)
-            SELECT g,
-                   'FEED' || g,
-                   'SYM'  || (g % 5000),
-                   ((g % 1000) * 0.5)::double precision
-            FROM generate_series(1, {int(rows)}) AS g
-            """
+        """
+    )
+    cur.execute(
+        f"""
+        INSERT INTO instruments_a (optiver_id, feedcode, symbol, strike)
+        SELECT g, 'FEED' || g, 'SYM' || (g % 5000), ((g % 1000) * 0.5)::double precision
+        FROM generate_series(1, {int(rows)}) AS g
+        """
+    )
+
+
+def _create_instruments_b(cur, rows: int, half: int) -> None:
+    # keys half+1 .. rows+half (half-overlapping with instruments_a's range, so a
+    # FULL OUTER JOIN has unmatched rows on both sides)
+    cur.execute("DROP TABLE IF EXISTS instruments_b")
+    cur.execute(
+        """
+        CREATE TABLE instruments_b (
+            optiver_id BIGINT PRIMARY KEY,
+            exchange   TEXT NOT NULL,
+            expiry     DATE
         )
-        # instruments_b: keys half+1 .. rows+half (half-overlapping range)
-        cur.execute("DROP TABLE IF EXISTS instruments_b")
-        cur.execute(
-            """
-            CREATE TABLE instruments_b (
-                optiver_id BIGINT PRIMARY KEY,
-                exchange   TEXT NOT NULL,
-                expiry     DATE
-            )
-            """
+        """
+    )
+    cur.execute(
+        f"""
+        INSERT INTO instruments_b (optiver_id, exchange, expiry)
+        SELECT g, (ARRAY['CBOE','NYSE','NASDAQ','EUREX'])[1 + (g % 4)], DATE '2026-01-01' + (g % 365)
+        FROM generate_series({int(half) + 1}, {int(rows) + int(half)}) AS g
+        """
+    )
+
+
+def _create_instruments_small(cur) -> None:
+    cur.execute("DROP TABLE IF EXISTS instruments_small")
+    cur.execute(
+        """
+        CREATE TABLE instruments_small (
+            optiver_id BIGINT PRIMARY KEY,
+            feedcode   TEXT NOT NULL,
+            symbol     TEXT NOT NULL
         )
-        cur.execute(
-            f"""
-            INSERT INTO instruments_b (optiver_id, exchange, expiry)
-            SELECT g,
-                   (ARRAY['CBOE','NYSE','NASDAQ','EUREX'])[1 + (g % 4)],
-                   DATE '2026-01-01' + (g % 365)
-            FROM generate_series({int(half) + 1}, {int(rows) + int(half)}) AS g
-            """
+        """
+    )
+    cur.execute(
+        f"""
+        INSERT INTO instruments_small (optiver_id, feedcode, symbol)
+        SELECT g, 'FEED' || g, 'SYM' || g
+        FROM generate_series(1, {SMALL_ROWS}) AS g
+        """
+    )
+
+
+@pytest.fixture(scope="session")
+def perf_postgres_b(docker_network) -> Iterator[PostgresContainer]:
+    """Second Postgres backend on Trino's network — for the federated (two
+    separate databases) identity scenario. Seeded with instruments_b only."""
+    pg = (
+        PostgresContainer(
+            "postgres:16",
+            driver="psycopg2",
+            username=PERF_PG_USER,
+            password=PERF_PG_PASSWORD,
+            dbname=PERF_PG_DB,
         )
-        # tiny table for the fast-path floor scenario
-        cur.execute("DROP TABLE IF EXISTS instruments_small")
-        cur.execute(
-            """
-            CREATE TABLE instruments_small (
-                optiver_id BIGINT PRIMARY KEY,
-                feedcode   TEXT NOT NULL,
-                symbol     TEXT NOT NULL
-            )
-            """
-        )
-        cur.execute(
-            f"""
-            INSERT INTO instruments_small (optiver_id, feedcode, symbol)
-            SELECT g, 'FEED' || g, 'SYM' || g
-            FROM generate_series(1, {SMALL_ROWS}) AS g
-            """
-        )
+        .with_network(docker_network)
+        .with_network_aliases(PERF_PG_B_ALIAS)
+    )
+    pg.start()
+    try:
+        _wait_ready(pg)
+        _seed_b_backend(pg, rows=harness.scale_rows())
+        yield pg
+    finally:
+        pg.stop()
 
 
 # --------------------------------------------------------------------------
@@ -200,31 +240,36 @@ def _reset():
 class Bench:
     small_type: str  # single factory over the tiny table
     large_type: str  # single factory over a large table (UNION path)
-    joined_type: str  # identity, two factories across two catalogs (JOIN path)
+    joined_type: str  # identity, two factories across two catalogs, same backend
+    federated_type: str  # identity, two factories across two separate backends
     table_a: str  # fully-qualified path for raw-SQL scenarios
 
 
 @pytest.fixture(scope="session")
-def bench(perf_client, perf_postgres) -> Iterator[Bench]:
+def bench(perf_client, perf_postgres, perf_postgres_b) -> Iterator[Bench]:
     c = perf_client
 
-    # Two postgresql catalogs pointing at the same seeded Postgres. Both expose
-    # every table; we deliberately draw the two identity factories from
-    # different catalogs so the join is cross-catalog (no pushdown).
-    for name in ("bench_a", "bench_b"):
+    def register_pg_catalog(name: str, alias: str) -> None:
         r = c.post(
             "/catalogs",
             json={
                 "name": name,
                 "connector": "postgresql",
                 "properties": {
-                    "connection-url": f"jdbc:postgresql://{PERF_PG_ALIAS}:5432/{PERF_PG_DB}",
+                    "connection-url": f"jdbc:postgresql://{alias}:5432/{PERF_PG_DB}",
                     "connection-user": PERF_PG_USER,
                     "connection-password": PERF_PG_PASSWORD,
                 },
             },
         )
         assert r.status_code == 201, r.get_json()
+
+    # bench_a / bench_b point at the SAME seeded Postgres (two catalogs so the
+    # identity join is cross-catalog → no pushdown). bench_fed points at a
+    # SEPARATE Postgres backend for the genuinely-federated variant.
+    register_pg_catalog("bench_a", PERF_PG_ALIAS)
+    register_pg_catalog("bench_b", PERF_PG_ALIAS)
+    register_pg_catalog("bench_fed", PERF_PG_B_ALIAS)
 
     def ds(catalog: str, table: str) -> str:
         rows = c.get(f"/data-sources?catalog={catalog}").get_json()
@@ -262,6 +307,20 @@ def bench(perf_client, perf_postgres) -> Iterator[Bench]:
         trait_config={"identity": {"column": "optiver_id"}},
     )
 
+    # Federated identity JOIN: same shape but across TWO separate Postgres
+    # backends (bench_a → pg_a, bench_fed → pg_b) — genuine cross-database
+    # federation. Confirms the pre-join key bound holds across real backends.
+    federated = make_type("InstrumentFederated")
+    c.put(f"/object-types/{federated}/traits/identity")
+    make_factory(
+        ds("bench_a", "instruments_a"), federated,
+        trait_config={"identity": {"column": "optiver_id"}},
+    )
+    make_factory(
+        ds("bench_fed", "instruments_b"), federated,
+        trait_config={"identity": {"column": "optiver_id"}},
+    )
+
     # Warm Trino's JIT + the JDBC connection pools before any measurement, so
     # the one-time cold-start cost doesn't land on whichever fast scenario runs
     # first and make its baseline noisy. (The identity path is intentionally not
@@ -278,10 +337,11 @@ def bench(perf_client, perf_postgres) -> Iterator[Bench]:
             small_type="InstrumentSmall",
             large_type="InstrumentLarge",
             joined_type="Instrument",
+            federated_type="InstrumentFederated",
             table_a="bench_a.public.instruments_a",
         )
     finally:
-        for name in ("bench_a", "bench_b"):
+        for name in ("bench_a", "bench_b", "bench_fed"):
             try:
                 c.delete(f"/catalogs/{name}")
             except Exception:
