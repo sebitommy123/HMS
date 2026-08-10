@@ -5,6 +5,7 @@ No mocking, ever. This module talks to a live Trino. Errors from Trino are surfa
 as TrinoError so callers can record the real Trino message.
 """
 
+import math
 import time
 from dataclasses import dataclass
 
@@ -21,6 +22,14 @@ class TrinoError(Exception):
 
 class QueryTimeoutError(TrinoError):
     """Raised when a passthrough query exceeds its wall-clock budget."""
+
+
+def _is_trino_time_limit(exc: Exception) -> bool:
+    """True if a Trino error is a server-side execution-time-limit kill
+    (the `query_max_execution_time` budget), so we can surface it as a timeout
+    rather than a generic query error."""
+    name = getattr(exc, "error_name", "") or ""
+    return name == "EXCEEDED_TIME_LIMIT" or "exceeded maximum execution time" in str(exc).lower()
 
 
 @dataclass(frozen=True)
@@ -52,7 +61,9 @@ class TrinoClient:
     def base_url(self) -> str:
         return f"http://{self.host}:{self.port}"
 
-    def _connection(self) -> trino.dbapi.Connection:
+    def _connection(
+        self, session_properties: dict[str, str] | None = None
+    ) -> trino.dbapi.Connection:
         return trino.dbapi.connect(
             host=self.host,
             port=self.port,
@@ -60,6 +71,7 @@ class TrinoClient:
             catalog="system",
             schema="runtime",
             request_timeout=self.request_timeout,
+            session_properties=session_properties or {},
         )
 
     def ping(self) -> bool:
@@ -210,10 +222,17 @@ class TrinoClient:
         timeout_seconds = max(1.0, min(timeout_seconds, 600.0))
         max_rows = max(1, min(int(max_rows), 1_000_000))
 
+        # Enforce the budget SERVER-SIDE too. The fetch-loop wall-clock below
+        # only fires between row batches, so a query that stalls in Trino
+        # planning/queuing before the first batch would otherwise be bounded
+        # only by the per-HTTP-request timeout, not the total budget. Trino's
+        # query_max_execution_time kills the query itself when exceeded.
+        session_properties = {"query_max_execution_time": f"{math.ceil(timeout_seconds)}s"}
+
         start = time.monotonic()
         query_id: str | None = None
         try:
-            with self._connection() as conn:
+            with self._connection(session_properties) as conn:
                 cur = conn.cursor()
                 cur.execute(sql)
                 query_id = getattr(cur, "query_id", None)
@@ -249,13 +268,15 @@ class TrinoClient:
             raise
         except Exception as exc:
             elapsed = time.monotonic() - start
-            # If we blew past the wall-clock budget, the underlying error (a
-            # dropped HTTP connection, a Trino-side cancel, etc.) is functionally
-            # a timeout from the caller's perspective. Surface it as one so the
-            # API returns 504 instead of a misleading 400.
-            if elapsed >= timeout_seconds:
+            # A server-side execution-time-limit kill is a timeout by any other
+            # name — surface it as one regardless of our local clock (it may fire
+            # before the fetch-loop wall-clock does). Likewise if we blew past the
+            # budget locally, the underlying error (dropped HTTP connection,
+            # Trino-side cancel, etc.) is functionally a timeout. Surface both as
+            # QueryTimeoutError so the API returns 504 instead of a misleading 400.
+            if _is_trino_time_limit(exc) or elapsed >= timeout_seconds:
                 raise QueryTimeoutError(
-                    f"query exceeded {timeout_seconds:.1f}s wall-clock budget"
+                    f"query exceeded {timeout_seconds:.1f}s budget"
                 ) from exc
             raise TrinoError(str(exc)) from exc
 
