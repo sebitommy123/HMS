@@ -32,8 +32,12 @@ packages = ["src/datapro_core"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Exclude the perf suite by default (it seeds millions of rows and takes
+# minutes). `-m perf` on the CLI overrides this to select it.
+addopts = "-m 'not perf'"
 markers = [
     "slow: integration tests that restart containers (run with -m slow)",
+    "perf: query performance/latency scenarios; excluded by default, run with -m perf",
 ]
 
 [tool.ruff]

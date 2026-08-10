@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run the full test suite — Core integration, AI tools, UI components.
-# Pass an arg to limit scope: core | ai | ui (default: all).
+# Pass an arg to limit scope: core | ai | ui | perf (default: all).
+# `perf` is the query performance suite; it's excluded from `all`.
 
 source "$(dirname "$0")/_lib.sh"
 
@@ -35,14 +36,22 @@ run_ui() {
   (cd "$HMS_ROOT/ui" && pnpm exec tsc --noEmit && pnpm exec vitest run "$@")
 }
 
+run_perf() {
+  log "Running Core query-perf suite (tracked baselines, non-blocking)..."
+  # Seeds a large Postgres and measures the semantic query path. `-s` so the
+  # baseline report prints. Excluded from `all` — run it explicitly.
+  (cd "$HMS_ROOT/core" && uv run pytest -m perf -s "$@")
+}
+
 case "$scope" in
   core)  shift || true; run_core "$@" ;;
   ai)    shift || true; run_ai   "$@" ;;
   ui)    shift || true; run_ui   "$@" ;;
+  perf)  shift || true; run_perf "$@" ;;
   all)
     run_core
     run_ai
     run_ui
     ;;
-  *) die "Unknown scope: $scope. Use one of: core, ai, ui, all." ;;
+  *) die "Unknown scope: $scope. Use one of: core, ai, ui, perf, all." ;;
 esac

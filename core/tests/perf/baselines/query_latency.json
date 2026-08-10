@@ -1,0 +1,50 @@
+{
+  "meta": {
+    "platform": "macOS-14.4-arm64-arm-64bit",
+    "python": "3.12.7",
+    "cpu_count": 12,
+    "scale_rows": 2000000
+  },
+  "scenarios": {
+    "union_single_factory_small": {
+      "status": "ok",
+      "p50_ms": 373.1,
+      "p95_ms": 502.7,
+      "server_elapsed_s": 0.091,
+      "rows": 25,
+      "budget_ms": 1500
+    },
+    "union_single_factory_large": {
+      "status": "ok",
+      "p50_ms": 334.3,
+      "p95_ms": 467.2,
+      "server_elapsed_s": 0.237,
+      "rows": 25,
+      "budget_ms": 3000
+    },
+    "raw_trino_scan_large": {
+      "status": "ok",
+      "p50_ms": 213.4,
+      "p95_ms": 277.2,
+      "server_elapsed_s": 0.207,
+      "rows": 10000,
+      "budget_ms": 3000
+    },
+    "raw_trino_count_large": {
+      "status": "ok",
+      "p50_ms": 176.8,
+      "p95_ms": 231.4,
+      "server_elapsed_s": 0.243,
+      "rows": 1,
+      "budget_ms": 15000
+    },
+    "identity_join_two_factories_large": {
+      "status": "ok",
+      "p50_ms": 1922.6,
+      "p95_ms": 2027.8,
+      "server_elapsed_s": 1.354,
+      "rows": 25,
+      "budget_ms": 5000
+    }
+  }
+}
