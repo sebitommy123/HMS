@@ -1,9 +1,11 @@
 """query_objects tool — POST /query on Core, the semantic query engine.
 
-Returns a tabular result (columns + rows) plus a result_status block. Each
-row carries a `_datasource` column identifying which (catalog, schema,
-table) it came from — useful when multiple factories produce the same
-object type.
+Returns a top-level `objects` array — the interpreted layer, one object per
+result row. Each object has `data_sources` (every source that fed it), `id`
+(when the object type has the identity trait), and `fields` keyed as
+`fields[name][data_source]` so provenance is explicit. Read `objects`. The
+raw `columns`/`rows` table and run metadata live under `result_status` for
+debugging.
 
 For the SQL string Core would send (without executing), use
 preview_query_plan first.
@@ -25,13 +27,15 @@ class QueryObjectsTool(Tool):
             "name": self.name,
             "description": (
                 "Run a semantic Core query: ask DataPro for objects of a "
-                "given type. Core resolves the type to its object "
-                "factories, generates one UNION ALL CORRESPONDING Trino "
-                "statement, and runs it. Returns the raw table (columns + "
-                "rows) plus a result_status block listing which factories "
-                "were used, which were skipped (and why), any errors, "
-                "the SQL that ran, and timing. Each row has a "
-                "_datasource column identifying its source."
+                "given type. Core resolves the type to its object factories, "
+                "runs one Trino statement, and returns a top-level 'objects' "
+                "array — the interpreted result you should read. Each object "
+                "has 'data_sources' (every source that fed it), 'id' (when the "
+                "type has the identity trait), and 'fields' keyed as "
+                "fields[name][data_source] so you always know which source a "
+                "value came from. A 'result_status' block carries the raw "
+                "columns/rows table plus which factories were used/skipped (and "
+                "why), any errors, the SQL that ran, and timing."
             ),
             "input_schema": {
                 "type": "object",

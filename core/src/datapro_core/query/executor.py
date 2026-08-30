@@ -13,6 +13,7 @@ from datapro_core.query.models import (
     QueryResult,
     ResultStatus,
 )
+from datapro_core.query.objects import assemble_objects
 from datapro_core.trino_client import (
     QueryTimeoutError,
     TrinoClient,
@@ -60,6 +61,7 @@ def execute(plan: QueryPlan, trino: TrinoClient) -> QueryResult:
         return QueryResult(
             columns=_EMPTY_COLUMNS,
             rows=[],
+            objects=[],
             result_status=ResultStatus(
                 all_ok=len(plan.skipped) == 0,
                 factories_used=factories_used,
@@ -82,6 +84,7 @@ def execute(plan: QueryPlan, trino: TrinoClient) -> QueryResult:
         return QueryResult(
             columns=result.columns,
             rows=result.rows,
+            objects=assemble_objects(plan, result.columns, result.rows),
             result_status=ResultStatus(
                 all_ok=len(plan.skipped) == 0,
                 factories_used=factories_used,
@@ -101,6 +104,7 @@ def execute(plan: QueryPlan, trino: TrinoClient) -> QueryResult:
     return QueryResult(
         columns=_EMPTY_COLUMNS,
         rows=[],
+        objects=[],
         result_status=ResultStatus(
             all_ok=False,
             factories_used=factories_used,

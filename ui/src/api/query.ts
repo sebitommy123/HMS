@@ -5,6 +5,10 @@ import { api } from "@/api/client";
 
 const ResultStatus = z.object({
   all_ok: z.boolean(),
+  // Raw tabular result, relegated here for debugging — the `objects` layer
+  // above is the primary surface. columns/rows are invertible 1:1 with objects.
+  columns: z.array(z.string()),
+  rows: z.array(z.array(z.unknown())),
   factories_used: z.array(
     z.object({
       factory_id: z.string(),
@@ -30,9 +34,18 @@ const ResultStatus = z.object({
 });
 export type ResultStatus = z.infer<typeof ResultStatus>;
 
+// One interpreted HMS object per result row. Access is always
+// fields[name][dataSource] — provenance is explicit, never flattened. `id` is
+// present only when the object type has the identity trait.
+export const HmsObject = z.object({
+  data_sources: z.array(z.string()),
+  id: z.unknown().optional(),
+  fields: z.record(z.string(), z.record(z.string(), z.unknown())),
+});
+export type HmsObject = z.infer<typeof HmsObject>;
+
 export const QueryResult = z.object({
-  columns: z.array(z.string()),
-  rows: z.array(z.array(z.unknown())),
+  objects: z.array(HmsObject),
   result_status: ResultStatus,
 });
 export type QueryResult = z.infer<typeof QueryResult>;

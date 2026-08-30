@@ -83,17 +83,23 @@ def ephemeral_setup() -> Iterator[dict]:
 # ---- query_objects ------------------------------------------------------
 
 
-def test_query_objects_returns_columns_rows_and_status(ctx, ephemeral_setup):
+def test_query_objects_returns_objects_and_status(ctx, ephemeral_setup):
     out = QueryObjectsTool().execute(
         ctx, {"from": ephemeral_setup["object_type_name"], "limit": 3}
     )
     parsed = json.loads(out)
-    assert "_datasource" in parsed["columns"]
-    assert "nationkey" in parsed["columns"]
-    assert "name" in parsed["columns"]
-    assert len(parsed["rows"]) == 3
-    assert parsed["result_status"]["all_ok"] is True
-    assert parsed["result_status"]["sql"]
+    # Top-level interpreted objects — one per row, source-keyed fields.
+    assert len(parsed["objects"]) == 3
+    obj = parsed["objects"][0]
+    assert obj["data_sources"]
+    assert "name" in obj["fields"]
+    # Raw table + metadata now live under result_status.
+    status = parsed["result_status"]
+    assert "_datasource" in status["columns"]
+    assert "nationkey" in status["columns"]
+    assert len(status["rows"]) == 3
+    assert status["all_ok"] is True
+    assert status["sql"]
 
 
 def test_query_objects_unknown_type_raises_with_helpful_message(ctx):

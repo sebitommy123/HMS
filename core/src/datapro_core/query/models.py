@@ -91,21 +91,24 @@ class ResultStatus:
 
 @dataclass(frozen=True)
 class QueryResult:
-    """The shape /query returns. Columns + rows mirror Trino's response so
-    downstream consumers (UI tables, agents, future MCP) can render it
-    directly without re-shaping. ``result_status`` carries the metadata
-    that doesn't fit in a tabular cell."""
+    """The shape /query returns. ``objects`` is the interpreted layer — one HMS
+    object per row (see ``query.objects.assemble_objects``), invertible 1:1 with
+    the row — and is what clients should read. The raw ``columns``/``rows`` (which
+    mirror Trino's response) are relegated into ``result_status`` for debugging,
+    alongside the rest of the run metadata."""
 
     columns: list[str]
     rows: list[list[Any]]
+    objects: list[dict[str, Any]]
     result_status: ResultStatus
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "columns": self.columns,
-            "rows": self.rows,
+            "objects": self.objects,
             "result_status": {
                 "all_ok": self.result_status.all_ok,
+                "columns": self.columns,
+                "rows": self.rows,
                 "factories_used": self.result_status.factories_used,
                 "factories_skipped": self.result_status.factories_skipped,
                 "errors": self.result_status.errors,

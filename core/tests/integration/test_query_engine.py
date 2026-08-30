@@ -108,12 +108,21 @@ def test_single_factory_use_all_columns_returns_rows(client):
     assert r.status_code == 200, r.get_json()
     body = r.get_json()
     assert body["result_status"]["all_ok"] is True, body["result_status"]
-    assert "_datasource" in body["columns"]
+    assert "_datasource" in body["result_status"]["columns"]
     # tpch.tiny.nation has 25 rows; LIMIT 5 caps us.
-    assert len(body["rows"]) == 5
+    assert len(body["result_status"]["rows"]) == 5
     # The synthesized _datasource column is the path string.
-    ds_col = body["columns"].index("_datasource")
-    assert all(row[ds_col] == f"{cat}.tiny.nation" for row in body["rows"])
+    ds_col = body["result_status"]["columns"].index("_datasource")
+    assert all(row[ds_col] == f"{cat}.tiny.nation" for row in body["result_status"]["rows"])
+
+    # Interpreted objects (union path): one per row, single data source, no id.
+    objects = body["objects"]
+    assert len(objects) == 5
+    obj = objects[0]
+    assert obj["data_sources"] == [f"{cat}.tiny.nation"]
+    assert "id" not in obj  # no identity trait
+    # Each field is keyed by its (single) source — deliberately not flattened.
+    assert obj["fields"]["name"][f"{cat}.tiny.nation"] is not None
 
 
 def test_single_factory_with_explicit_columns(client):
@@ -132,7 +141,7 @@ def test_single_factory_with_explicit_columns(client):
     assert r.status_code == 200, r.get_json()
     body = r.get_json()
     # We asked for two columns + _datasource; nothing else.
-    assert set(body["columns"]) == {"_datasource", "nationkey", "name"}
+    assert set(body["result_status"]["columns"]) == {"_datasource", "nationkey", "name"}
 
 
 # ---- multi-factory: UNION ALL CORRESPONDING -----------------------------
@@ -157,9 +166,9 @@ def test_multi_factory_union_aligns_overlapping_columns(client):
     body = r.get_json()
     assert body["result_status"]["all_ok"] is True, body["result_status"]
     # Per-factory LIMIT, so 4 from each branch = up to 8 total.
-    assert 4 <= len(body["rows"]) <= 8
-    ds_col = body["columns"].index("_datasource")
-    sources = {row[ds_col] for row in body["rows"]}
+    assert 4 <= len(body["result_status"]["rows"]) <= 8
+    ds_col = body["result_status"]["columns"].index("_datasource")
+    sources = {row[ds_col] for row in body["result_status"]["rows"]}
     assert sources == {f"{cat}.tiny.nation", f"{cat}.sf1.nation"}
 
 
@@ -185,12 +194,12 @@ def test_multi_factory_union_widens_non_overlapping_columns(client):
     assert r.status_code == 200, r.get_json()
     body = r.get_json()
     assert body["result_status"]["all_ok"] is True, body["result_status"]
-    assert set(body["columns"]) == {"_datasource", "nationkey", "name", "regionkey"}
+    assert set(body["result_status"]["columns"]) == {"_datasource", "nationkey", "name", "regionkey"}
 
-    ds_col = body["columns"].index("_datasource")
-    nk_col = body["columns"].index("nationkey")
-    rk_col = body["columns"].index("regionkey")
-    for row in body["rows"]:
+    ds_col = body["result_status"]["columns"].index("_datasource")
+    nk_col = body["result_status"]["columns"].index("nationkey")
+    rk_col = body["result_status"]["columns"].index("regionkey")
+    for row in body["result_status"]["rows"]:
         ds = row[ds_col]
         if ds == f"{cat}.tiny.nation":
             assert row[nk_col] is not None
@@ -226,7 +235,7 @@ def test_planner_skips_when_catalog_dropped_in_trino(client, core_app):
     assert cat in skipped["reason"]
     # No errors — the skip is graceful, not an exception.
     assert body["result_status"]["errors"] == []
-    assert body["rows"] == []
+    assert body["result_status"]["rows"] == []
 
 
 def test_query_with_no_factories_returns_empty_table(client):
@@ -237,7 +246,7 @@ def test_query_with_no_factories_returns_empty_table(client):
     assert r.status_code == 200
     body = r.get_json()
     assert body["result_status"]["all_ok"] is True
-    assert body["rows"] == []
+    assert body["result_status"]["rows"] == []
     assert body["result_status"]["factories_used"] == []
 
 
@@ -326,4 +335,4 @@ def test_unknown_data_source_table_skips_factory_gracefully(client, make_data_so
     assert body["result_status"]["errors"] == []
     assert len(body["result_status"]["factories_skipped"]) == 1
     assert "can't read columns" in body["result_status"]["factories_skipped"][0]["reason"].lower()
-    assert body["rows"] == []
+    assert body["result_status"]["rows"] == []

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -50,13 +50,29 @@ const typeRow = {
 };
 
 const successResult = {
-  columns: ["_datasource", "name", "sic"],
-  rows: [
-    ["tpch.tiny.companies", "Acme", "3711"],
-    ["tpch.tiny.companies", "Globex", "4922"],
+  objects: [
+    {
+      data_sources: ["tpch.tiny.companies"],
+      fields: {
+        name: { "tpch.tiny.companies": "Acme" },
+        sic: { "tpch.tiny.companies": "3711" },
+      },
+    },
+    {
+      data_sources: ["tpch.tiny.companies"],
+      fields: {
+        name: { "tpch.tiny.companies": "Globex" },
+        sic: { "tpch.tiny.companies": "4922" },
+      },
+    },
   ],
   result_status: {
     all_ok: true,
+    columns: ["_datasource", "name", "sic"],
+    rows: [
+      ["tpch.tiny.companies", "Acme", "3711"],
+      ["tpch.tiny.companies", "Globex", "4922"],
+    ],
     factories_used: [
       { factory_id: FACTORY_ID, data_source_path: "tpch.tiny.companies" },
     ],
@@ -69,10 +85,11 @@ const successResult = {
 };
 
 const partialResult = {
-  columns: ["_datasource"],
-  rows: [],
+  objects: [],
   result_status: {
     all_ok: false,
+    columns: ["_datasource"],
+    rows: [],
     factories_used: [],
     factories_skipped: [
       {
@@ -156,12 +173,21 @@ describe("Query page", () => {
     await waitFor(() => expect(screen.getByTestId("result-panel")).toBeInTheDocument());
     expect(queryBody).toEqual({ from: "Company", limit: 25, timeout_seconds: 10 });
     expect(screen.getByTestId("result-status-pill")).toHaveTextContent(/OK/i);
-    // Both rows render.
+    // Primary view: one interpreted object per row, with source-keyed fields.
+    expect(screen.getByTestId("objects-view")).toBeInTheDocument();
+    expect(screen.getByTestId("object-card-0")).toBeInTheDocument();
+    expect(screen.getByTestId("object-card-1")).toBeInTheDocument();
+    expect(screen.getByTestId("object-card-0")).toHaveTextContent("Acme");
+    // Raw columns/rows still present (collapsed debug section).
     expect(screen.getByTestId("results-row-0")).toBeInTheDocument();
     expect(screen.getByTestId("results-row-1")).toBeInTheDocument();
-    // The used-factory shows up as a link to the factory detail page.
+    // The used-factory shows up as a link to the factory detail page, with a
+    // colored letter chip matching the object cards' legend.
     const usedList = screen.getByTestId("factories-used");
     expect(usedList).toHaveTextContent("tpch.tiny.companies");
+    expect(
+      within(usedList).getByTestId("source-letter-tpch.tiny.companies"),
+    ).toHaveTextContent("A");
   });
 
   it("preview shows the SQL and which factories would be used", async () => {

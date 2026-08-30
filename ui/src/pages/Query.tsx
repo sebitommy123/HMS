@@ -10,6 +10,13 @@ import {
   type QueryResult,
 } from "@/api/query";
 import { ApiError } from "@/api/client";
+import {
+  ObjectsView,
+  SourceLetter,
+  buildLegend,
+  collectPaths,
+  type Legend,
+} from "@/components/ObjectsView";
 import { useObservation, useViewIdentity } from "@/lib/viewContext";
 
 const DEFAULT_LIMIT = 25;
@@ -237,7 +244,17 @@ function PreviewPanel({ preview }: { preview: QueryPlanPreview }) {
 }
 
 function ResultPanel({ result }: { result: QueryResult }) {
-  const { columns, rows, result_status } = result;
+  const { objects, result_status } = result;
+  const { columns, rows } = result_status;
+  // One shared legend for the whole result: factory order is canonical (it's
+  // the order the SQL used), with any object-only sources appended defensively.
+  // Both the factories-used list and the object cards reference it, so a
+  // source's letter + color is identical everywhere.
+  const usedPaths = result_status.factories_used.map((f) => f.data_source_path);
+  const legend = buildLegend([
+    ...usedPaths,
+    ...collectPaths(objects).filter((p) => !usedPaths.includes(p)),
+  ]);
   const tone = result_status.all_ok
     ? "bg-emerald-100 text-emerald-800"
     : "bg-amber-100 text-amber-800";
@@ -287,9 +304,21 @@ function ResultPanel({ result }: { result: QueryResult }) {
       <FactoryLists
         used={result_status.factories_used}
         skipped={result_status.factories_skipped}
+        legend={legend}
       />
 
-      <ResultTable columns={columns} rows={rows} />
+      {/* Primary view: the interpreted objects. */}
+      <ObjectsView objects={objects} legend={legend} />
+
+      {/* Raw tabular result — kept for debugging, collapsed by default. */}
+      <details className="text-xs text-zinc-600" data-testid="raw-table-details">
+        <summary className="cursor-pointer hover:text-zinc-900">
+          Raw columns &amp; rows ({rows.length} row{rows.length === 1 ? "" : "s"}) — debug
+        </summary>
+        <div className="mt-2">
+          <ResultTable columns={columns} rows={rows} />
+        </div>
+      </details>
 
       <details className="text-xs text-zinc-600">
         <summary className="cursor-pointer hover:text-zinc-900">SQL that ran</summary>
@@ -302,9 +331,11 @@ function ResultPanel({ result }: { result: QueryResult }) {
 function FactoryLists({
   used,
   skipped,
+  legend,
 }: {
   used: { factory_id: string; data_source_path: string }[];
   skipped: { factory_id: string; data_source_path: string; reason: string }[];
+  legend?: Legend;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
@@ -322,7 +353,8 @@ function FactoryLists({
             data-testid="factories-used"
           >
             {used.map((f) => (
-              <li key={f.factory_id}>
+              <li key={f.factory_id} className="flex items-center gap-1.5">
+                {legend && <SourceLetter path={f.data_source_path} legend={legend} />}
                 <Link
                   to={`/object-factories/${f.factory_id}`}
                   className="text-zinc-700 hover:underline"

@@ -237,7 +237,7 @@ def test_broken_factory_is_excluded_from_query_but_others_succeed(
 
     body = client.post("/query", json={"from": "Nation", "limit": 2}).get_json()
     # Query succeeds against the healthy factory.
-    assert len(body["rows"]) > 0
+    assert len(body["result_status"]["rows"]) > 0
     # And the broken one is reported in factories_skipped.
     paths = [s["data_source_path"] for s in body["result_status"]["factories_skipped"]]
     assert any("no_such_table" in p for p in paths)

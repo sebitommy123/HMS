@@ -111,11 +111,11 @@ def test_flex_catalog_via_semantic_query(client):
     body = r.get_json()
     assert body["result_status"]["all_ok"] is True, body["result_status"]
     # _datasource column lands first (synthetic), then the declared cols.
-    assert set(body["columns"]) >= {"_datasource", "id", "name", "age", "email"}
+    assert set(body["result_status"]["columns"]) >= {"_datasource", "id", "name", "age", "email"}
     # LIMIT 3 → 3 rows.
-    assert len(body["rows"]) == 3
-    ds_col = body["columns"].index("_datasource")
-    assert all(row[ds_col] == f"{CATALOG_NAME}.default.users" for row in body["rows"])
+    assert len(body["result_status"]["rows"]) == 3
+    ds_col = body["result_status"]["columns"].index("_datasource")
+    assert all(row[ds_col] == f"{CATALOG_NAME}.default.users" for row in body["result_status"]["rows"])
 
 
 def test_flex_predicate_pushdown_returns_correct_rows(client):
