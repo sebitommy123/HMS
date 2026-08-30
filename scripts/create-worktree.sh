@@ -9,16 +9,17 @@
 # uv and pnpm use shared caches, so a fresh worktree bootstraps quickly.
 #
 # Usage:
-#   scripts/create-worktree.sh                 # worktree under ../hms-worktrees/<uuid>
+#   scripts/create-worktree.sh                 # worktree under .worktrees/<uuid>
 #   WORKTREE_BASE=/some/dir scripts/create-worktree.sh
 #
 # The worktree gets its own branch, wt/<uuid>, based on the current HEAD.
 
 source "$(dirname "$0")/_lib.sh"
 
-# Where worktrees live. Default: a sibling of the main clone, so they never
-# clutter it as untracked files. Override with WORKTREE_BASE.
-WORKTREE_BASE="${WORKTREE_BASE:-$(dirname "$HMS_ROOT")/hms-worktrees}"
+# Where worktrees live. Default: .worktrees/ inside the repo, which is gitignored
+# so the nested checkouts never show up as untracked files. Override with
+# WORKTREE_BASE.
+WORKTREE_BASE="${WORKTREE_BASE:-$HMS_ROOT/.worktrees}"
 
 # Local-only (gitignored) files to carry into each worktree, if they exist here.
 # Add to this list as new local config/secrets appear.

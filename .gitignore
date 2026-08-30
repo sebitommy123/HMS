@@ -38,6 +38,8 @@ datapro/docker-compose.override.yml
 core/.perf-results/
 # Core materializes flex module .py files here at runtime
 datapro/flex-modules/*.py
+# Git worktrees created by scripts/create-worktree.sh (nested checkouts)
+.worktrees/
 
 # ---- OS / editor ----
 .DS_Store
