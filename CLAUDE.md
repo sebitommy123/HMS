@@ -28,6 +28,34 @@ included, use `scripts/dev-down.sh --all` (reversible — keeps the databases) o
 `scripts/stack-rm.sh --all` (not reversible). Both prompt first. Don't reach for
 them casually: another session may be mid-test.
 
+### Landing work on main
+Worktree branches are cut from `origin/main` precisely so they can fast-forward
+back onto it. Land them that way — never commit directly on the main clone:
+
+```bash
+scripts/test.sh                        # from your worktree, before anything else
+git -C <worktree> fetch origin main
+git -C <worktree> rebase origin/main   # conflicts get resolved here, never on main
+git -C <main-clone> merge --ff-only wt/<uuid>
+git -C <main-clone> push origin main
+```
+
+Rebase rather than merging main into your branch, so history stays linear and
+`--ff-only` keeps working. Re-fetch right before the merge: with several agents
+active, main moves while you test.
+
+When a rebase conflicts, read the other commit before resolving — it usually
+encodes a reason. A conflict here is a signal to merge *intent*, not to pick a
+side: two sessions editing the same file were each solving something real.
+
+Verify on the rebased tree, not the pre-rebase one — the merge can be clean and
+the result still broken.
+
+**A failing test isn't automatically yours.** Run it against `origin/main`
+before assuming your change caused it; a suite is often already red from
+someone else's in-flight work, and chasing that wastes real time. If you land
+with known-failing tests, say which and why they're pre-existing.
+
 ### No backward compatibility
 This project is in **active experimentation**. Do **not** add backward-compatibility
 shims, deprecation paths, dual-support code, or migration fallbacks when changing an
