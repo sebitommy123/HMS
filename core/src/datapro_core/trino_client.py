@@ -12,6 +12,12 @@ from dataclasses import dataclass
 import requests
 import trino
 
+# Importing this applies a monkey-patch for a trino-python-client 0.337.0 bug
+# that crashes cursor.description on bare varchar/decimal columns (see the
+# module docstring). Must run before any query — this is the single module that
+# talks to the Trino DBAPI, so importing it here covers every path.
+from datapro_core import trino_patch  # noqa: F401
+
 
 SYSTEM_CATALOGS = {"system"}
 
