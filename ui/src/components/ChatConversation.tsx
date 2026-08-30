@@ -73,6 +73,11 @@ export function ChatConversation({
   const qc = useQueryClient();
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  // A non-error end-of-turn notice (hit the tool-step cap, length limit,
+  // refused, cancelled) — so a turn that stops for a reason other than a hard
+  // failure never just goes quiet. Distinct from sendError (which is for actual
+  // failures) and clears when the next turn starts.
+  const [turnNotice, setTurnNotice] = useState<TurnNotice | null>(null);
   const [inProgress, setInProgress] = useState<InProgressTurn>(emptyInProgress);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
@@ -126,6 +131,7 @@ export function ChatConversation({
       ctrl: AbortController,
     ) => {
       let streamErrorMessage: string | null = null;
+      let doneEvent: Extract<StreamEvent, { type: "stream_done" }> | null = null;
       const stallReason = await drainWithStallDetection(
         iter,
         ctrl,
@@ -134,6 +140,8 @@ export function ChatConversation({
           applyEvent(ev, setInProgress, qc, id);
           if (ev.type === "stream_error") {
             streamErrorMessage = ev.details ?? ev.error;
+          } else if (ev.type === "stream_done") {
+            doneEvent = ev;
           }
         },
       );
@@ -152,34 +160,47 @@ export function ChatConversation({
           "Stream went quiet — refreshed the conversation. " +
             "If the agent is still running you'll see updates roll in.",
         );
+      } else if (doneEvent) {
+        setTurnNotice(noticeForDone(doneEvent));
       }
     },
     [id, qc],
   );
 
-  const handleSend = useCallback(async () => {
-    const text = draft.trim();
-    if (!text || isStreaming) return;
-    setDraft("");
-    setSendError(null);
-    setInProgress(emptyInProgress);
-    setIsStreaming(true);
-
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-    try {
-      await consumeStream(sendMessageStream(id, text, ctrl.signal), ctrl);
-    } catch (err) {
-      if (!ctrl.signal.aborted) {
-        setSendError(toErrorMessage(err));
-      }
-    } finally {
-      setIsStreaming(false);
-      setIsCancelling(false);
+  // Send a turn with the given text. Used by the composer (draft) and by the
+  // "Continue" affordance on an end-of-turn notice (text = "Continue.").
+  const send = useCallback(
+    async (text: string) => {
+      if (!text || isStreaming) return;
+      setSendError(null);
+      setTurnNotice(null);
       setInProgress(emptyInProgress);
-      abortRef.current = null;
-    }
-  }, [consumeStream, draft, id, isStreaming]);
+      setIsStreaming(true);
+
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      try {
+        await consumeStream(sendMessageStream(id, text, ctrl.signal), ctrl);
+      } catch (err) {
+        if (!ctrl.signal.aborted) {
+          setSendError(toErrorMessage(err));
+        }
+      } finally {
+        setIsStreaming(false);
+        setIsCancelling(false);
+        setInProgress(emptyInProgress);
+        abortRef.current = null;
+      }
+    },
+    [consumeStream, id, isStreaming],
+  );
+
+  const handleSend = useCallback(() => {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    void send(text);
+  }, [draft, send]);
 
   const handleStop = useCallback(async () => {
     if (!isStreaming || isCancelling) return;
@@ -224,6 +245,7 @@ export function ChatConversation({
         if (cancelled || first.done) return;
         // There IS an in-flight turn. Take over as if we'd just hit send.
         setSendError(null);
+        setTurnNotice(null);
         setInProgress(emptyInProgress);
         setIsStreaming(true);
         abortRef.current = ctrl;
@@ -265,6 +287,13 @@ export function ChatConversation({
 
   const conv = chat.data;
   const inProgressBlocks = buildInProgressBlocks(inProgress);
+  // The notice to show: this session's live turn notice, or — after a reload,
+  // when session state is gone — one derived from the persisted history (a
+  // conversation that ends on a tool result never got the model's follow-up, so
+  // it was cut short mid-task).
+  const notice: TurnNotice | null =
+    (!isStreaming && turnNotice) ||
+    (!isStreaming && endedMidTask(conv.messages) ? MID_TASK_NOTICE : null);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -375,6 +404,26 @@ export function ChatConversation({
           data-testid="send-error"
         >
           {sendError}
+        </div>
+      )}
+
+      {notice && !sendError && (
+        <div
+          className="mb-2 flex items-center justify-between gap-3 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          data-testid="turn-notice"
+        >
+          <span>{notice.message}</span>
+          {notice.canContinue && (
+            <button
+              type="button"
+              onClick={() => void send("Continue.")}
+              disabled={coreDown || isStreaming}
+              className="shrink-0 rounded bg-zinc-900 px-2.5 py-1 text-xs font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="continue-button"
+            >
+              Continue
+            </button>
+          )}
         </div>
       )}
 
@@ -617,6 +666,70 @@ function buildInProgressBlocks(p: InProgressTurn): ContentBlock[] {
   return blocks;
 }
 
+// ---- end-of-turn feedback -------------------------------------------------
+
+/** A non-error status shown when a turn ends for a notable reason. `canContinue`
+ * adds a one-click nudge that re-invokes the agent to pick up where it stopped. */
+type TurnNotice = { message: string; canContinue: boolean };
+
+const MID_TASK_NOTICE: TurnNotice = {
+  message: "The assistant stopped mid-task. Continue to let it pick up where it left off.",
+  canContinue: true,
+};
+
+/** Map a completed stream to a user-facing notice (or null for a clean finish).
+ * This is the fix for the "silently stops" gap: every non-error ending that
+ * isn't a normal end_turn gets surfaced. */
+function noticeForDone(
+  done: Extract<StreamEvent, { type: "stream_done" }>,
+): TurnNotice | null {
+  if (done.truncated_by_iteration_cap) {
+    return {
+      message: `The assistant paused after ${done.iterations} tool steps (its safety limit). Continue to let it keep going.`,
+      canContinue: true,
+    };
+  }
+  switch (done.final_stop_reason) {
+    case "max_tokens":
+      return {
+        message: "The response was cut off at the length limit. Continue to get the rest.",
+        canContinue: true,
+      };
+    case "refusal":
+      return { message: "The assistant declined to respond to that.", canContinue: false };
+    case "cancelled":
+      return { message: "Stopped.", canContinue: false };
+    default:
+      return null; // end_turn (and anything else that ran to completion)
+  }
+}
+
+/** A conversation whose last message is a tool-result turn never received the
+ * model's follow-up — the turn was cut short (e.g. the iteration cap on a page
+ * that has since reloaded, so the live notice is gone). */
+function endedMidTask(messages: Message[]): boolean {
+  const last = messages[messages.length - 1];
+  return Boolean(
+    last &&
+      last.role === "user" &&
+      last.content.length > 0 &&
+      last.content.every((b) => b.type === "tool_result"),
+  );
+}
+
+/** Human notice for a persisted message's stop reason — only for reasons that
+ * genuinely truncated it. Returns null for normal endings (no noise). */
+function stopReasonNotice(reason: string | null | undefined): string | null {
+  switch (reason) {
+    case "max_tokens":
+      return "⚠ Response cut off at the length limit — ask it to continue.";
+    case "refusal":
+      return "⚠ The assistant declined to respond.";
+    default:
+      return null;
+  }
+}
+
 function toErrorMessage(err: unknown): string {
   if (err instanceof AiApiError) {
     const body = (err.body ?? {}) as { error?: string; details?: unknown };
@@ -664,9 +777,12 @@ function MessageRow({ message }: { message: Message }) {
         )}
       </div>
       <MessageBlocks blocks={message.content} />
-      {message.stop_reason && message.stop_reason !== "end_turn" && (
-        <p className="mt-2 text-[11px] uppercase tracking-wide text-zinc-500">
-          stop: {message.stop_reason}
+      {/* Only flag stop reasons that actually cut a message short — a human
+          sentence, not the raw API token. Normal tool_use / end_turn / cancelled
+          turns get no noise (cancellation is acknowledged by the live notice). */}
+      {stopReasonNotice(message.stop_reason) && (
+        <p className="mt-2 text-[11px] text-amber-700" data-testid="message-stop-notice">
+          {stopReasonNotice(message.stop_reason)}
         </p>
       )}
     </article>

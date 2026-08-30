@@ -181,6 +181,9 @@ describe("ChatDetail", () => {
     let hasSent = false;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
       if (url.endsWith("/conversations/abc/messages/stream") && method === "POST") {
         hasSent = true;
         return sseResponse([
@@ -259,6 +262,9 @@ describe("ChatDetail", () => {
     let hasSent = false;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
       if (url.endsWith("/conversations/abc/messages/stream") && method === "POST") {
         hasSent = true;
         return sseResponse([
@@ -333,6 +339,9 @@ describe("ChatDetail", () => {
     let cancelCalled = false;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
       if (url.endsWith("/conversations/abc") && method === "GET") {
         return jsonResponse({
           id: "abc",
@@ -407,6 +416,9 @@ describe("ChatDetail", () => {
 
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
       if (url.endsWith("/conversations/abc") && method === "GET") {
         return jsonResponse({
           id: "abc",
@@ -482,6 +494,9 @@ describe("ChatDetail", () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
       if (url.endsWith("/conversations/abc") && method === "GET") {
         return jsonResponse({
           id: "abc",
@@ -517,5 +532,94 @@ describe("ChatDetail", () => {
     await waitFor(() => {
       expect(screen.getByTestId("send-error")).toHaveTextContent(/ANTHROPIC_API_KEY/);
     });
+  });
+
+  it("surfaces the tool-step cap as an actionable notice, and Continue re-sends", async () => {
+    const user = userEvent.setup();
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const postBodies: string[] = [];
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
+      if (url.endsWith("/conversations/abc/messages/stream") && method === "POST") {
+        postBodies.push((init?.body as string) ?? "");
+        return sseResponse([
+          { event: "assistant_start", data: { iteration: 0 } },
+          { event: "text_delta", data: { text: "working…" } },
+          {
+            event: "stream_done",
+            data: {
+              final_stop_reason: "tool_use",
+              iterations: 100,
+              truncated_by_iteration_cap: true,
+            },
+          },
+        ]);
+      }
+      if (url.endsWith("/conversations/abc") && method === "GET") {
+        return jsonResponse(fullConvWithMessages("abc"));
+      }
+      if (url.endsWith("/conversations") && method === "GET") return jsonResponse([]);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderAt("/chats/abc");
+    await waitFor(() => expect(screen.getByTestId("send-button")).toBeInTheDocument());
+    await user.type(screen.getByTestId("message-input"), "do a big task");
+    await user.click(screen.getByTestId("send-button"));
+
+    // The cap is surfaced (not silent), with the iteration count + a Continue.
+    await waitFor(() => expect(screen.getByTestId("turn-notice")).toBeInTheDocument());
+    expect(screen.getByTestId("turn-notice")).toHaveTextContent(/100 tool steps/);
+    const continueBtn = screen.getByTestId("continue-button");
+    expect(continueBtn).toBeEnabled();
+
+    // Continue re-invokes the agent with a canned nudge.
+    await user.click(continueBtn);
+    await waitFor(() => expect(postBodies.length).toBe(2));
+    expect(JSON.parse(postBodies[0])).toEqual({ text: "do a big task" });
+    expect(JSON.parse(postBodies[1])).toEqual({ text: "Continue." });
+  });
+
+  it("shows no notice on a clean end_turn finish (no noise)", async () => {
+    const user = userEvent.setup();
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const method = init?.method ?? "GET";
+      if (url.endsWith("/health") && method === "GET") {
+        return jsonResponse({ status: "ok", postgres: "reachable", trino: "reachable" });
+      }
+      if (url.endsWith("/conversations/abc/messages/stream") && method === "POST") {
+        return sseResponse([
+          { event: "assistant_start", data: { iteration: 0 } },
+          { event: "text_delta", data: { text: "all done" } },
+          {
+            event: "stream_done",
+            data: {
+              final_stop_reason: "end_turn",
+              iterations: 1,
+              truncated_by_iteration_cap: false,
+            },
+          },
+        ]);
+      }
+      if (url.endsWith("/conversations/abc") && method === "GET") {
+        return jsonResponse(fullConvWithMessages("abc"));
+      }
+      if (url.endsWith("/conversations") && method === "GET") return jsonResponse([]);
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+
+    renderAt("/chats/abc");
+    await waitFor(() => expect(screen.getByTestId("send-button")).toBeInTheDocument());
+    await user.type(screen.getByTestId("message-input"), "quick question");
+    await user.click(screen.getByTestId("send-button"));
+
+    await waitFor(() =>
+      expect(screen.getByText("You have no catalogs registered.")).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("turn-notice")).not.toBeInTheDocument();
   });
 });

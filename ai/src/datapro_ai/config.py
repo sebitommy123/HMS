@@ -55,8 +55,10 @@ class Config:
             model=os.environ.get("AI_MODEL", DEFAULT_MODEL),
             max_tokens=int(os.environ.get("AI_MAX_TOKENS", "8192")),
             # Hard upper bound on how many tool round-trips the agent loop will
-            # take before forcing termination. Prevents pathological loops while
-            # leaving room for legitimate multi-step tasks.
-            max_tool_iterations=int(os.environ.get("AI_MAX_TOOL_ITERATIONS", "10")),
+            # take before forcing termination. A backstop against pathological
+            # loops, set high enough that real multi-step tasks don't hit it —
+            # and when a turn DOES stop here, the UI surfaces it with a Continue
+            # affordance rather than failing silently.
+            max_tool_iterations=int(os.environ.get("AI_MAX_TOOL_ITERATIONS", "100")),
             cors_origins=tuple(o.strip() for o in cors_raw.split(",") if o.strip()),
         )
