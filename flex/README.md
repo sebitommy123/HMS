@@ -17,7 +17,7 @@ can spike a flex catalog with `vim module.py`.
 ## What it does
 
 - A single Java Trino plugin (`flex`) lives in
-  `/usr/lib/trino/plugin/flex/` inside the `hms-datapro/trino-flex:dev`
+  `/usr/lib/trino/plugin/flex/` inside the `hms-datapro/trino-flex:$HMS_STACK`
   image.
 - Each catalog created with `USING flex` points at a Python module via
   the `flex.module_path` catalog property.
@@ -88,7 +88,7 @@ docker run --rm \
 
 # 2. Build the custom Trino image (bundles JAR + Python + datapro_flex)
 cd ../..  # back to repo root
-docker build -t hms-datapro/trino-flex:dev -f datapro/trino-flex/Dockerfile .
+docker build -t "$TRINO_IMAGE" -f datapro/trino-flex/Dockerfile .   # after eval "$(scripts/hms.py env)"
 ```
 
 `scripts/dev-up.sh` does both automatically if the artifacts are missing

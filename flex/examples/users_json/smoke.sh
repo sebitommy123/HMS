@@ -9,7 +9,7 @@
 #   cd HMS/flex/connector && docker run --rm -v "$(pwd):/work" \
 #       -v "$(pwd)/.m2:/root/.m2" -w /work \
 #       maven:3.9-eclipse-temurin-25-alpine mvn -B -DskipTests package
-#   cd HMS && docker build -t hms-datapro/trino-flex:dev \
+#   cd HMS && eval "$(scripts/hms.py env)" && docker build -t "$TRINO_IMAGE" \
 #       -f datapro/trino-flex/Dockerfile .
 
 set -euo pipefail
@@ -24,12 +24,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Fresh container per run so we don't conflict with hms-trino.
+# Fresh container per run so we don't conflict with any checkout's Trino.
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
 docker run --rm -d --name "$CONTAINER" -p "$PORT:8080" \
   -v "$HMS_ROOT/datapro/trino/etc/config.properties:/etc/trino/config.properties:ro" \
   -v "$HERE:/var/datapro-flex/users:ro" \
-  hms-datapro/trino-flex:dev >/dev/null
+  "${TRINO_IMAGE:-hms-datapro/trino-flex:main}" >/dev/null
 
 echo "waiting for trino..."
 for i in $(seq 1 90); do

@@ -8,7 +8,8 @@ import tailwindcss from "@tailwindcss/vite";
 // to same-origin /api/core and /api/ai (see ui-dev.sh, which sets VITE_CORE_URL
 // / VITE_AI_URL to those paths). This makes the whole stack reachable from a
 // single URL with no CORS config and no extra exposed ports. Targets come from
-// CORE_URL / AI_URL (exported by scripts/_lib.sh); fall back to local defaults.
+// CORE_URL / AI_URL, which scripts/ui-dev.sh sets to whichever checkout it is
+// running in. The fallbacks below are the main clone's stack slot.
 const coreTarget = process.env.CORE_URL ?? "http://127.0.0.1:5001";
 const aiTarget = process.env.AI_URL ?? "http://127.0.0.1:5002";
 
@@ -20,7 +21,7 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.UI_PORT ?? 5003),
     // Accept requests by hostname (not just 127.0.0.1) so a UI_HOST=0.0.0.0
     // dev server is reachable from other machines without a Host-header reject.
     allowedHosts: true,

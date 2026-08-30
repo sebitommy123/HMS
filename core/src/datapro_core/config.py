@@ -20,14 +20,15 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        # CORS_ORIGINS is comma-separated. Defaults cover the common local-dev
-        # ports vite picks: 5173 (dev) and 4173 (preview), plus 5174-5176/4174-4176
-        # in case another vite project on the same machine already grabbed the
-        # primary port. In production, set CORS_ORIGINS explicitly.
+        # CORS_ORIGINS is comma-separated. The default covers this checkout's
+        # own UI dev server (UI_PORT comes from its stack slot — see
+        # scripts/hms.py) plus vite's preview port. scripts/dev-up.sh sets
+        # CORS_ORIGINS explicitly; in production, so should you.
+        ui_port = os.environ.get("UI_PORT", "5003")
         default_origins = [
             f"http://{host}:{port}"
             for host in ("localhost", "127.0.0.1")
-            for port in (5173, 5174, 5175, 5176, 4173, 4174, 4175, 4176)
+            for port in (ui_port, "4173")
         ]
         cors_raw = os.environ.get("CORS_ORIGINS", ",".join(default_origins))
         cors = tuple(o.strip() for o in cors_raw.split(",") if o.strip())
@@ -37,13 +38,30 @@ class Config:
         # Trino container reads.
         repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
         default_host_dir = os.path.join(repo_root, "datapro", "flex-modules")
+        # DATABASE_URL and TRINO_PORT are mandatory, and deliberately have no
+        # fallback. Both are per-checkout now (every worktree runs its own
+        # Postgres and Trino on its own ports — see scripts/hms.py), so any
+        # baked-in default would be wrong for every checkout but one, and would
+        # fail by quietly serving another worktree's data rather than by
+        # erroring. scripts/dev-up.sh always sets them.
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            raise RuntimeError(
+                "DATABASE_URL is required. Start via scripts/dev-up.sh, or set it "
+                'explicitly — `eval "$(scripts/hms.py env)"` exports the right one '
+                "for this checkout as CORE_DATABASE_URL."
+            )
+        trino_port = os.environ.get("TRINO_PORT")
+        if not trino_port:
+            raise RuntimeError(
+                "TRINO_PORT is required — it differs per checkout. Start via "
+                'scripts/dev-up.sh, or `eval "$(scripts/hms.py env)"`.'
+            )
+
         return cls(
-            database_url=os.environ.get(
-                "DATABASE_URL",
-                "postgresql+psycopg://datapro:datapro@localhost:5433/datapro_core",
-            ),
+            database_url=database_url,
             trino_host=os.environ.get("TRINO_HOST", "localhost"),
-            trino_port=int(os.environ.get("TRINO_PORT", "8080")),
+            trino_port=int(trino_port),
             trino_user=os.environ.get("TRINO_USER", "datapro-core"),
             cors_origins=cors,
             flex_modules_host_dir=os.environ.get(

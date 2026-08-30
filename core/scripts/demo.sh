@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 #
 # End-to-end demo. Assumes:
-#   - Trino is running on localhost:8080 (e.g. `cd ../datapro && docker compose up -d`)
-#   - Core is running on localhost:5000 (e.g. `cd .. && uv run flask --app datapro_core.app run`)
-#   - Postgres is running (e.g. `docker compose up -d postgres`)
+#   - This checkout's stack is up (scripts/dev-up.sh)
+#   - Its env is loaded, so CORE/TRINO/TRINO_CONTAINER point at it:
+#       eval "$(scripts/hms.py env)"
 #
 # Walks through: register a catalog, see it in Trino, "lose" it, reconcile, see it back.
 
 set -euo pipefail
 
-CORE=${CORE:-http://localhost:5000}
-TRINO=${TRINO:-http://localhost:8080}
+# Default to this checkout's slot when the env is loaded, else the main clone's.
+CORE=${CORE:-http://localhost:${CORE_PORT:-5001}}
+TRINO=${TRINO:-http://localhost:${TRINO_PORT:-5004}}
 
 pp() { python3 -m json.tool 2>/dev/null || cat; }
 
@@ -36,7 +37,7 @@ echo "==> Trino sees it (Core's view)"
 curl -sS "$CORE/trino/state" | pp
 echo
 
-TRINO_CONTAINER=${TRINO_CONTAINER:-hms-trino}
+TRINO_CONTAINER=${TRINO_CONTAINER:-hms-${HMS_STACK:-main}-trino}
 
 echo "==> Run a query against the new catalog (via Trino CLI in $TRINO_CONTAINER)"
 docker exec "$TRINO_CONTAINER" trino --execute "SELECT COUNT(*) AS nations FROM tpch_demo.tiny.nation"

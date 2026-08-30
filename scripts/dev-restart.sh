@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Restart Core + AI (e.g. after a code change you want picked up by the
-# already-running dev processes). Doesn't touch the Docker containers.
-
-source "$(dirname "$0")/_lib.sh"
-
-"$HMS_ROOT/scripts/dev-down.sh"
-"$HMS_ROOT/scripts/dev-up.sh"
+# Restart Core + AI after a code change. Containers are left alone.
+#
+# Thin shim onto the real implementation in scripts/hms.py, kept so the
+# familiar entry point kept working. `scripts/hms.py --help` lists everything.
+exec python3 "$(dirname "$0")/hms.py" restart "$@"

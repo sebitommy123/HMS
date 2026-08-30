@@ -5,6 +5,7 @@ The Trino fixture mounts the same `catalog.management=dynamic` /
 test environment matches what Core actually faces in real life.
 """
 
+import os
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -24,10 +25,11 @@ from datapro_core.db import Base, make_engine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TRINO_CONFIG_HOST_PATH = REPO_ROOT / "datapro" / "trino" / "etc" / "config.properties"
-# Custom Trino image with flex baked in. Built by scripts/dev-up.sh
-# (or manually via `docker build -t hms-datapro/trino-flex:dev
-# -f datapro/trino-flex/Dockerfile .` from the repo root).
-TRINO_IMAGE = "hms-datapro/trino-flex:dev"
+# Custom Trino image with flex baked in. Tagged per stack slot so worktrees
+# building different flex code don't clobber each other's image, which is why
+# this comes from the environment — scripts/test.sh exports it. The `main`
+# fallback is for running pytest by hand in the main clone.
+TRINO_IMAGE = os.environ.get("TRINO_IMAGE", "hms-datapro/trino-flex:main")
 # Mount target inside the Trino container for flex modules under test.
 # Tests that materialize through Core write to the session-scoped temp
 # directory the `flex_modules_dir` fixture creates; the same path is

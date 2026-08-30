@@ -1,15 +1,6 @@
 #!/usr/bin/env bash
-# Generate a new Alembic migration by diffing the SQLAlchemy models against
-# Core's dev Postgres. Edit the generated file before committing — autogen
-# is a starting point, not the truth.
+# Autogenerate a new Alembic migration. Usage: scripts/migrate-new.sh "message"
 #
-# Usage: scripts/migrate-new.sh "describe the change"
-
-source "$(dirname "$0")/_lib.sh"
-
-[[ $# -lt 1 ]] && die "Usage: scripts/migrate-new.sh \"message\""
-
-require_docker
-log "Autogenerating migration: $1"
-(cd "$HMS_ROOT/core" && uv run alembic revision --autogenerate -m "$1")
-log "Generated. Review the new file under core/alembic/versions/ before committing."
+# Thin shim onto the real implementation in scripts/hms.py, kept so the
+# familiar entry point kept working. `scripts/hms.py --help` lists everything.
+exec python3 "$(dirname "$0")/hms.py" migrate-new "$@"

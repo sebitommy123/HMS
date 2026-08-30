@@ -1,7 +1,7 @@
 # macOS host-filesystem overlay for the flex worker.
 #
 # Layered on the base compose by scripts/dev-up.sh (via DATAPRO_OS_COMPOSE in
-# scripts/_lib.sh) when running on Darwin. The flex Python worker runs INSIDE
+# scripts/hms.py) when running on Darwin. The flex Python worker runs INSIDE
 # the Trino container, so it can only read host files that are mounted in. We
 # mount colima's virtiofs-exposed macOS roots at the SAME paths so flex modules
 # can reference real host paths transparently (e.g. /Users/you/data/foo.csv).

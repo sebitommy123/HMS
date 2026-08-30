@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# Apply pending Alembic migrations to Core's dev Postgres. Run this after
-# pulling changes that touched core/src/datapro_core/models.py.
-
-source "$(dirname "$0")/_lib.sh"
-
-require_docker
-log "Applying Core migrations..."
-(cd "$HMS_ROOT/core" && uv run alembic upgrade head)
+# Apply Alembic migrations to this checkout's Core Postgres.
+#
+# Thin shim onto the real implementation in scripts/hms.py, kept so the
+# familiar entry point kept working. `scripts/hms.py --help` lists everything.
+exec python3 "$(dirname "$0")/hms.py" migrate "$@"

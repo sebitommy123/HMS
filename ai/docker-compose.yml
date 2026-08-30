@@ -1,4 +1,8 @@
-name: hms-ai
+# Keyed on HMS_STACK, this checkout's stack slot — see ../datapro/docker-compose.yml
+# for the full note. scripts/hms.py sets it and the ports; there are no defaults,
+# so a bare `docker compose` here fails loudly instead of touching another
+# checkout's containers. By hand: eval "$(scripts/hms.py env)"
+name: hms-${HMS_STACK:?unset — run via scripts/, or eval "$(scripts/hms.py env)"}-ai
 
 # AI is single-instance by design (matches Core; see ../core/README.md § Deployment model).
 # Do not scale the `ai` service to >1 replicas — the agent loop holds in-memory state per
@@ -7,13 +11,13 @@ name: hms-ai
 services:
   postgres:
     image: docker.io/library/postgres:16
-    container_name: hms-ai-postgres
+    container_name: hms-${HMS_STACK}-ai-postgres
     environment:
       POSTGRES_DB: datapro_ai
       POSTGRES_USER: datapro
       POSTGRES_PASSWORD: datapro
     ports:
-      - "5434:5432"
+      - "${AI_PG_PORT:?unset — see above}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,13 +28,13 @@ services:
 
   ai:
     build: .
-    container_name: hms-ai
+    container_name: hms-${HMS_STACK}-ai
     environment:
       DATABASE_URL: postgresql+psycopg://datapro:datapro@postgres:5432/datapro_ai
-      CORE_URL: http://host.docker.internal:5001
+      CORE_URL: http://host.docker.internal:${CORE_PORT:?unset — see above}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     ports:
-      - "5002:5002"
+      - "${AI_PORT:?unset — see above}:5002"
     depends_on:
       postgres:
         condition: service_healthy

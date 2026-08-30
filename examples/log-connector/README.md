@@ -93,10 +93,10 @@ python3 generate_logs.py
 # After wiring the JAR + data volume + catalog into your Trino compose:
 docker compose restart trino   # e.g. from HMS/datapro
 
-docker exec hms-trino trino --execute "SHOW TABLES FROM applogs.\"default\""
-docker exec hms-trino trino --execute "DESCRIBE applogs.\"default\".entries"
+docker exec hms-$HMS_STACK-trino trino --execute "SHOW TABLES FROM applogs.\"default\""
+docker exec hms-$HMS_STACK-trino trino --execute "DESCRIBE applogs.\"default\".entries"
 
-docker exec hms-trino trino --execute "
+docker exec hms-$HMS_STACK-trino trino --execute "
   SELECT app, day, COUNT(*) AS lines
   FROM applogs.\"default\".entries
   GROUP BY app, day

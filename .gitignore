@@ -34,6 +34,9 @@ datapro/docker-compose.override.yml
 
 # ---- Runtime / generated ----
 .dev-logs/
+# This checkout's stack slot (slug + base port). Per-checkout by definition —
+# see scripts/hms.py. Machine-wide registry lives in ~/.hms/stacks/.
+.hms-stack
 # Per-run perf artifacts; the committed baseline lives under tests/perf/baselines/
 core/.perf-results/
 # Core materializes flex module .py files here at runtime

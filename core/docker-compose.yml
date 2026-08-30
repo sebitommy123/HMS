@@ -1,4 +1,8 @@
-name: hms-core
+# Keyed on HMS_STACK, this checkout's stack slot — see ../datapro/docker-compose.yml
+# for the full note. scripts/hms.py sets it and the ports; there are no defaults,
+# so a bare `docker compose` here fails loudly instead of touching another
+# checkout's containers. By hand: eval "$(scripts/hms.py env)"
+name: hms-${HMS_STACK:?unset — run via scripts/, or eval "$(scripts/hms.py env)"}-core
 
 # Core is single-instance by design (see README § Deployment model). Do not scale
 # the `core` service to >1 replicas — the reconciler has no cross-process locking.
@@ -6,13 +10,13 @@ name: hms-core
 services:
   postgres:
     image: docker.io/library/postgres:16
-    container_name: hms-core-postgres
+    container_name: hms-${HMS_STACK}-core-postgres
     environment:
       POSTGRES_DB: datapro_core
       POSTGRES_USER: datapro
       POSTGRES_PASSWORD: datapro
     ports:
-      - "5433:5432"
+      - "${CORE_PG_PORT:?unset — see above}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,14 +27,14 @@ services:
 
   core:
     build: .
-    container_name: hms-core
+    container_name: hms-${HMS_STACK}-core
     environment:
       DATABASE_URL: postgresql+psycopg://datapro:datapro@postgres:5432/datapro_core
       TRINO_HOST: host.docker.internal
-      TRINO_PORT: "8080"
+      TRINO_PORT: "${TRINO_PORT:?unset — see above}"
       TRINO_USER: datapro-core
     ports:
-      - "5000:5000"
+      - "${CORE_PORT:?unset — see above}:5000"
     depends_on:
       postgres:
         condition: service_healthy

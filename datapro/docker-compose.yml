@@ -1,19 +1,28 @@
-name: hms-datapro
+# Everything that could collide between checkouts is keyed on HMS_STACK, this
+# checkout's stack slot. scripts/hms.py sets it, along with the ports and the
+# image tag below. There is deliberately no default: a bare `docker compose`
+# from a worktree should fail loudly rather than silently operate on another
+# checkout's containers. To drive compose by hand:
+#
+#     eval "$(scripts/hms.py env)"
+#
+name: hms-${HMS_STACK:?unset — run via scripts/, or eval "$(scripts/hms.py env)"}-datapro
 
 services:
   trino:
     # Custom image extends trinodb/trino with python3 + the flex worker
-    # + the flex connector JARs. Built by `scripts/dev-up.sh` (which
-    # also ensures the flex JAR is up to date first).
-    image: hms-datapro/trino-flex:dev
+    # + the flex connector JARs. Built by `scripts/dev-up.sh` (which also
+    # ensures the flex JAR is up to date first), and tagged per slot so two
+    # worktrees building different flex code can't clobber each other.
+    image: ${TRINO_IMAGE:?unset — see above}
     build:
       context: ..
       dockerfile: datapro/trino-flex/Dockerfile
-    container_name: hms-trino
+    container_name: hms-${HMS_STACK}-trino
     ports:
       # Container always listens on 8080; TRINO_PORT only changes the host
-      # mapping (set by scripts/_lib.sh, override on hosts where 8080 is taken).
-      - "${TRINO_PORT:-8080}:8080"
+      # mapping (derived from this checkout's slot — see scripts/hms.py).
+      - "${TRINO_PORT:?unset — see above}:8080"
     volumes:
       - ./trino/etc/config.properties:/etc/trino/config.properties:ro
       # Bind-mount for hand-authored flex modules during dev. Phase B
@@ -25,7 +34,7 @@ services:
       # container, so without a mount it can't see files on the host (unlike DB
       # connectors, which reach out over the network). dev-up.sh layers on the
       # matching overlay (docker-compose.macos.yml / docker-compose.linux.yml,
-      # selected by DATAPRO_OS_COMPOSE in scripts/_lib.sh), which mounts the
+      # selected per-OS by scripts/hms.py), which mounts the
       # host data-bearing roots at the SAME paths so modules can reference real
       # host paths transparently (e.g. /Users/you/data/foo.csv). Create a
       # gitignored docker-compose.override.yml here to add your own mounts.
