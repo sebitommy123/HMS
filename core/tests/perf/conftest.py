@@ -5,8 +5,10 @@ reuses the session-scoped `trino` + `docker_network` fixtures from the parent
 `core/tests/conftest.py` and adds:
 
   - `perf_postgres` — a Postgres on Trino's docker network, seeded once via
-    `generate_series` to PERF_SCALE_ROWS rows across two `instruments` tables
-    that share an `optiver_id` key (plus a tiny table for the fast-path floor).
+    `generate_series` to PERF_SCALE_ROWS rows across three `instruments` tables
+    that share the full `optiver_id` key space but are stored in three different
+    physical orders (asc / shuffled / desc), plus a tiny fast-path table. The
+    differing orders stress that the identity merge keys on id, not row order.
   - `perf_app` / `perf_client` — a session-scoped Core app so the whole bench
     environment is built exactly once (the parent's `core_app` is per-test).
   - `bench` — registers TWO postgresql catalogs at the same Postgres and builds
@@ -93,29 +95,31 @@ def _wait_ready(pg: PostgresContainer, timeout: float = 30.0) -> None:
 
 
 def _seed(pg: PostgresContainer, *, rows: int) -> None:
-    """Seed two large tables sharing `optiver_id`, plus a tiny table.
-
-    Values are deterministic functions of the series index (reproducible, no
-    randomness). The two large tables' key ranges half-overlap so a FULL OUTER
-    JOIN yields unmatched rows on both sides — the realistic stitch shape.
+    """Seed three large tables that SHARE the full `optiver_id` key space
+    (1..rows) — so every identity lives in all three and the merge is genuinely
+    exercised — but are physically stored in three DIFFERENT orders: ascending,
+    hash-shuffled, and descending. That's the realistic case: the "same" object
+    appears in each source, but the sources are not ordered the same way, so the
+    identity join must merge on key, not on any incidental row alignment. Plus a
+    tiny table for the fast-path floor. Values are deterministic functions of the
+    series index (reproducible, no randomness).
     """
-    half = rows // 2
     with psycopg.connect(_dsn(pg), autocommit=True) as conn, conn.cursor() as cur:
-        _create_instruments_a(cur, rows)
-        _create_instruments_b(cur, rows, half)
+        _create_instruments_a(cur, rows)  # ascending
+        _create_instruments_b(cur, rows)  # hash-shuffled
+        _create_instruments_c(cur, rows)  # descending
         _create_instruments_small(cur)
 
 
 def _seed_b_backend(pg: PostgresContainer, *, rows: int) -> None:
     """Seed ONLY instruments_b on a second Postgres backend, for the federated
     (two genuinely separate databases) identity scenario."""
-    half = rows // 2
     with psycopg.connect(_dsn(pg), autocommit=True) as conn, conn.cursor() as cur:
-        _create_instruments_b(cur, rows, half)
+        _create_instruments_b(cur, rows)
 
 
 def _create_instruments_a(cur, rows: int) -> None:
-    # keys 1..rows
+    # keys 1..rows, inserted ASCENDING (natural physical order).
     cur.execute("DROP TABLE IF EXISTS instruments_a")
     cur.execute(
         """
@@ -132,13 +136,15 @@ def _create_instruments_a(cur, rows: int) -> None:
         INSERT INTO instruments_a (optiver_id, feedcode, symbol, strike)
         SELECT g, 'FEED' || g, 'SYM' || (g % 5000), ((g % 1000) * 0.5)::double precision
         FROM generate_series(1, {int(rows)}) AS g
+        ORDER BY g
         """
     )
 
 
-def _create_instruments_b(cur, rows: int, half: int) -> None:
-    # keys half+1 .. rows+half (half-overlapping with instruments_a's range, so a
-    # FULL OUTER JOIN has unmatched rows on both sides)
+def _create_instruments_b(cur, rows: int) -> None:
+    # keys 1..rows (full overlap with instruments_a) but inserted in a DIFFERENT
+    # physical order — a deterministic multiplicative-hash shuffle — so the two
+    # sources are stored in unrelated orders. The merge must key on optiver_id.
     cur.execute("DROP TABLE IF EXISTS instruments_b")
     cur.execute(
         """
@@ -153,7 +159,31 @@ def _create_instruments_b(cur, rows: int, half: int) -> None:
         f"""
         INSERT INTO instruments_b (optiver_id, exchange, expiry)
         SELECT g, (ARRAY['CBOE','NYSE','NASDAQ','EUREX'])[1 + (g % 4)], DATE '2026-01-01' + (g % 365)
-        FROM generate_series({int(half) + 1}, {int(rows) + int(half)}) AS g
+        FROM generate_series(1, {int(rows)}) AS g
+        ORDER BY (g::bigint * 48271) % 2147483647
+        """
+    )
+
+
+def _create_instruments_c(cur, rows: int) -> None:
+    # keys 1..rows (full overlap) inserted DESCENDING — a third distinct physical
+    # order, so a 3-way identity join sees three differently-ordered sources.
+    cur.execute("DROP TABLE IF EXISTS instruments_c")
+    cur.execute(
+        """
+        CREATE TABLE instruments_c (
+            optiver_id BIGINT PRIMARY KEY,
+            warehouse  TEXT NOT NULL,
+            lot_size   INTEGER
+        )
+        """
+    )
+    cur.execute(
+        f"""
+        INSERT INTO instruments_c (optiver_id, warehouse, lot_size)
+        SELECT g, 'WH' || (g % 20), (g % 50) + 1
+        FROM generate_series(1, {int(rows)}) AS g
+        ORDER BY g DESC
         """
     )
 
@@ -240,7 +270,8 @@ def _reset():
 class Bench:
     small_type: str  # single factory over the tiny table
     large_type: str  # single factory over a large table (UNION path)
-    joined_type: str  # identity, two factories across two catalogs, same backend
+    joined_type: str  # identity, two factories (a asc + b shuffled), diff orders
+    triad_type: str  # identity, three factories (a asc + b shuffled + c desc)
     federated_type: str  # identity, two factories across two separate backends
     table_a: str  # fully-qualified path for raw-SQL scenarios
 
@@ -269,6 +300,7 @@ def bench(perf_client, perf_postgres, perf_postgres_b) -> Iterator[Bench]:
     # SEPARATE Postgres backend for the genuinely-federated variant.
     register_pg_catalog("bench_a", PERF_PG_ALIAS)
     register_pg_catalog("bench_b", PERF_PG_ALIAS)
+    register_pg_catalog("bench_c", PERF_PG_ALIAS)
     register_pg_catalog("bench_fed", PERF_PG_B_ALIAS)
 
     def ds(catalog: str, table: str) -> str:
@@ -296,6 +328,7 @@ def bench(perf_client, perf_postgres, perf_postgres_b) -> Iterator[Bench]:
     make_factory(ds("bench_a", "instruments_a"), large)
 
     # Identity JOIN path: two factories across two catalogs, keyed on optiver_id.
+    # a (ascending) + b (shuffled) share the full key space in different orders.
     joined = make_type("Instrument")
     c.put(f"/object-types/{joined}/traits/identity")
     make_factory(
@@ -306,6 +339,18 @@ def bench(perf_client, perf_postgres, perf_postgres_b) -> Iterator[Bench]:
         ds("bench_b", "instruments_b"), joined,
         trait_config={"identity": {"column": "optiver_id"}},
     )
+
+    # Three-source identity JOIN across three catalogs — a (asc) + b (shuffled) +
+    # c (desc), all sharing the key space in three different physical orders. This
+    # is the multi-source merge the production bug fragmented; every top-N key
+    # must come back merged from all three.
+    triad = make_type("InstrumentTriad")
+    c.put(f"/object-types/{triad}/traits/identity")
+    for cat, tbl in (("bench_a", "instruments_a"), ("bench_b", "instruments_b"), ("bench_c", "instruments_c")):
+        make_factory(
+            ds(cat, tbl), triad,
+            trait_config={"identity": {"column": "optiver_id"}},
+        )
 
     # Federated identity JOIN: same shape but across TWO separate Postgres
     # backends (bench_a → pg_a, bench_fed → pg_b) — genuine cross-database
@@ -321,13 +366,16 @@ def bench(perf_client, perf_postgres, perf_postgres_b) -> Iterator[Bench]:
         trait_config={"identity": {"column": "optiver_id"}},
     )
 
-    # Warm Trino's JIT + the JDBC connection pools before any measurement, so
-    # the one-time cold-start cost doesn't land on whichever fast scenario runs
-    # first and make its baseline noisy. (The identity path is intentionally not
-    # warmed — its cost dwarfs warmup and we want its true first-hit latency.)
+    # Warm Trino's JIT + the JDBC connection pools (for EVERY catalog, incl.
+    # bench_c) before any measurement, so a one-time cold-start doesn't land on a
+    # measured iteration and inflate its p95. The identity join is now bounded to
+    # seconds, so warming it is cheap and gives honest, stable numbers.
     for _ in range(2):
         harness.semantic_query(c, "InstrumentSmall", limit=5)
         harness.semantic_query(c, "InstrumentLarge", limit=5)
+        harness.semantic_query(c, "Instrument", limit=5, timeout_seconds=15)
+        harness.semantic_query(c, "InstrumentTriad", limit=5, timeout_seconds=15)
+        harness.semantic_query(c, "InstrumentFederated", limit=5, timeout_seconds=15)
         harness.raw_query(
             c, "SELECT count(*) FROM bench_a.public.instruments_a", max_rows=1
         )
@@ -337,11 +385,12 @@ def bench(perf_client, perf_postgres, perf_postgres_b) -> Iterator[Bench]:
             small_type="InstrumentSmall",
             large_type="InstrumentLarge",
             joined_type="Instrument",
+            triad_type="InstrumentTriad",
             federated_type="InstrumentFederated",
             table_a="bench_a.public.instruments_a",
         )
     finally:
-        for name in ("bench_a", "bench_b", "bench_fed"):
+        for name in ("bench_a", "bench_b", "bench_c", "bench_fed"):
             try:
                 c.delete(f"/catalogs/{name}")
             except Exception:

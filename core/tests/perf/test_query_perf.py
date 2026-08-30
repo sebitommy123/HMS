@@ -71,11 +71,13 @@ def test_raw_trino_count_large(bench, perf_client):
 
 
 def test_identity_join_two_factories_large(bench, perf_client):
-    """FLAGSHIP guard. Identity trait + two factories across two catalogs → a
-    FULL OUTER JOIN. Unbounded, this scanned both full tables (LIMIT only on the
-    outer SELECT) and timed out; the engine now bounds the identity key set
-    before the join (see query/sql_builder.py) so it stays well under budget.
-    This scenario guards that bound from regressing back to a full scan."""
+    """FLAGSHIP guard. Identity trait + two factories across two catalogs (a
+    ascending, b hash-shuffled) that share the full key space in different orders
+    → a FULL OUTER JOIN over millions of rows. Unbounded this scanned both full
+    tables and timed out; the engine now bounds the identity key set before the
+    join (see query/sql_builder.py) so it stays well under budget. Guards that
+    bound from regressing to a full scan — and, via the assertion below, that the
+    merge stays correct across differently-ordered sources."""
     harness.measure(
         "identity_join_two_factories_large",
         budget_ms=5000,
@@ -87,6 +89,44 @@ def test_identity_join_two_factories_large(bench, perf_client):
         warmup=1,
         iterations=4,
     )
+    _assert_full_merge(perf_client, bench.joined_type, sources=2)
+
+
+def test_identity_join_three_sources_shuffled(bench, perf_client):
+    """Multi-source merge at scale — three factories across three catalogs
+    (ascending, shuffled, descending) sharing the full key space in three
+    different physical orders. This mirrors the production bug (a piece present
+    in many sources came back fragmented) at millions of rows: the deterministic
+    key CTE must pick the same top-N keys for every branch so all three merge.
+    Fast (seconds) AND correct — every object carries all three sources."""
+    harness.measure(
+        "identity_join_three_sources_shuffled",
+        budget_ms=6000,
+        fn=lambda: harness.semantic_query(
+            perf_client, bench.triad_type, limit=25, timeout_seconds=15
+        ),
+        warmup=1,
+        iterations=4,
+    )
+    _assert_full_merge(perf_client, bench.triad_type, sources=3)
+
+
+def _assert_full_merge(client, type_name: str, *, sources: int) -> None:
+    """Every returned object must merge ALL `sources`. The sources share the full
+    key space, so each top-N identity lives in every source — a correct join
+    brings them all back; a fragmented (non-deterministic-key) join would drop
+    some. This is the correctness guard that pairs with the timing measurement."""
+    body = client.post(
+        "/query", json={"from": type_name, "limit": 25, "timeout_seconds": 15}
+    ).get_json()
+    assert body["result_status"]["all_ok"], body["result_status"]
+    objs = body["objects"]
+    assert objs, f"{type_name}: expected merged objects, got none"
+    for o in objs:
+        assert len(o["data_sources"]) == sources, (
+            f"{type_name}: expected {sources} sources merged, got "
+            f"{o['data_sources']} for id={o.get('id')}"
+        )
 
 
 def test_identity_join_federated_two_postgres(bench, perf_client):
@@ -103,6 +143,7 @@ def test_identity_join_federated_two_postgres(bench, perf_client):
         warmup=1,
         iterations=4,
     )
+    _assert_full_merge(perf_client, bench.federated_type, sources=2)
 
 
 def test_catalog_sync_many_tables(perf_client):

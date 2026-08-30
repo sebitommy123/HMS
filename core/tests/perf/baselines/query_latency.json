@@ -8,56 +8,64 @@
   "scenarios": {
     "union_single_factory_small": {
       "status": "ok",
-      "p50_ms": 287.7,
-      "p95_ms": 385.0,
-      "server_elapsed_s": 0.057,
-      "rows": 25,
+      "p50_ms": 118.4,
+      "p95_ms": 162.5,
+      "server_elapsed_s": 0.038,
+      "rows": 0,
       "budget_ms": 1500
     },
     "union_single_factory_large": {
       "status": "ok",
-      "p50_ms": 346.2,
-      "p95_ms": 539.3,
-      "server_elapsed_s": 0.104,
-      "rows": 25,
+      "p50_ms": 118.0,
+      "p95_ms": 128.6,
+      "server_elapsed_s": 0.044,
+      "rows": 0,
       "budget_ms": 3000
     },
     "raw_trino_scan_large": {
       "status": "ok",
-      "p50_ms": 267.7,
-      "p95_ms": 446.8,
-      "server_elapsed_s": 0.259,
+      "p50_ms": 77.0,
+      "p95_ms": 111.8,
+      "server_elapsed_s": 0.07,
       "rows": 10000,
       "budget_ms": 3000
     },
     "raw_trino_count_large": {
       "status": "ok",
-      "p50_ms": 225.3,
-      "p95_ms": 284.5,
-      "server_elapsed_s": 0.224,
+      "p50_ms": 123.3,
+      "p95_ms": 148.3,
+      "server_elapsed_s": 0.122,
       "rows": 1,
       "budget_ms": 15000
     },
     "identity_join_two_factories_large": {
       "status": "ok",
-      "p50_ms": 3179.9,
-      "p95_ms": 4467.7,
-      "server_elapsed_s": 3.346,
-      "rows": 25,
+      "p50_ms": 324.0,
+      "p95_ms": 385.2,
+      "server_elapsed_s": 0.165,
+      "rows": 0,
       "budget_ms": 5000
+    },
+    "identity_join_three_sources_shuffled": {
+      "status": "ok",
+      "p50_ms": 456.6,
+      "p95_ms": 545.6,
+      "server_elapsed_s": 0.23,
+      "rows": 0,
+      "budget_ms": 6000
     },
     "identity_join_federated_two_postgres": {
       "status": "ok",
-      "p50_ms": 1702.4,
-      "p95_ms": 2074.7,
-      "server_elapsed_s": 1.472,
-      "rows": 25,
+      "p50_ms": 270.9,
+      "p95_ms": 297.4,
+      "server_elapsed_s": 0.189,
+      "rows": 0,
       "budget_ms": 5000
     },
     "catalog_sync_many_tables": {
       "status": "ok",
-      "p50_ms": 1844.6,
-      "p95_ms": 1844.6,
+      "p50_ms": 881.2,
+      "p95_ms": 881.2,
       "server_elapsed_s": null,
       "rows": null,
       "budget_ms": 10000

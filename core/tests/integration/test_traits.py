@@ -212,7 +212,7 @@ def test_patch_factory_trait_config_revalidates(client):
 # ---- Identity-aware SQL generation ----
 
 
-def test_identity_preview_emits_full_outer_join(client):
+def test_identity_preview_emits_key_spine_join(client):
     cat = _create_catalog(client)
     type_id = _create_type(client, "JoinedNation")
     client.put(f"/object-types/{type_id}/traits/identity")
@@ -231,9 +231,12 @@ def test_identity_preview_emits_full_outer_join(client):
         "/preview-query-plan", json={"from": "JoinedNation", "limit": 3}
     ).get_json()
     sql = body["sql"]
-    assert "FULL OUTER JOIN" in sql
-    assert "USING (_identity)" in sql
-    # No UNION when the type has Identity.
+    # Bounded key spine, referenced once, with each branch LEFT JOINed onto it.
+    assert "WITH _identity_keys AS" in sql
+    assert sql.count("_identity_keys AS _keys") == 1
+    assert sql.count("LEFT JOIN") == 2
+    assert "._identity = _keys._identity" in sql
+    # No UNION-strategy artefacts when the type has Identity.
     assert "UNION ALL CORRESPONDING" not in sql
     # Prefix-with-source: per-factory column names carry the data source path.
     assert f"__{cat}.tiny.nation" in sql
@@ -268,11 +271,55 @@ def test_identity_query_merges_overlapping_rows(client):
     ).get_json()
     assert body["result_status"]["all_ok"] is True, body["result_status"]
     # _identity column appears once (collapsed by USING).
-    assert "_identity" in body["columns"]
+    assert "_identity" in body["result_status"]["columns"]
     # Per-source _datasource sentinels appear once each.
-    assert f"_datasource__{cat}.tiny.nation" in body["columns"]
-    assert f"_datasource__{cat}.sf1.nation" in body["columns"]
+    assert f"_datasource__{cat}.tiny.nation" in body["result_status"]["columns"]
+    assert f"_datasource__{cat}.sf1.nation" in body["result_status"]["columns"]
     # 25 distinct identity values, since both branches share the same set.
-    identity_idx = body["columns"].index("_identity")
-    identities = {row[identity_idx] for row in body["rows"]}
+    identity_idx = body["result_status"]["columns"].index("_identity")
+    identities = {row[identity_idx] for row in body["result_status"]["rows"]}
     assert len(identities) == 25
+
+    # The interpreted objects layer: one object per row, each merged from BOTH
+    # sources (identity trait) with an id and per-source field provenance.
+    objects = body["objects"]
+    assert len(objects) == len(body["result_status"]["rows"])
+    obj = objects[0]
+    assert set(obj["data_sources"]) == {f"{cat}.tiny.nation", f"{cat}.sf1.nation"}
+    assert obj["id"] in identities
+    # `name` comes from both sources → keyed by data source, never flattened.
+    assert set(obj["fields"]["name"].keys()) == {f"{cat}.tiny.nation", f"{cat}.sf1.nation"}
+
+
+def test_identity_merge_across_many_sources_is_complete_and_deterministic(client):
+    """Regression: an object present in multiple sources must merge ALL of them,
+    the same way on every run. The identity-key CTE is referenced by every
+    branch's filter and Trino may re-evaluate it per reference; if that CTE isn't
+    deterministic, branches pick different keys and the FULL OUTER JOIN fragments
+    (the object comes back split, missing sources, differently each run). With a
+    small limit the fragmentation is stark — one key, but only some of its
+    sources survive."""
+    cat = _create_catalog(client)
+    type_id = _create_type(client, "JoinedNation3")
+    client.put(f"/object-types/{type_id}/traits/identity")
+    # tpch `nation` carries the same 25 nationkeys (0..24) in every schema, so
+    # every key lives in all three sources — a clean multi-source merge.
+    schemas = ["tiny", "sf1", "sf100"]
+    for sch in schemas:
+        src = _create_source(client, cat, sch, "nation")
+        _create_factory(
+            client, src, type_id, trait_config={"identity": {"column": "nationkey"}}
+        )
+
+    expected_sources = {f"{cat}.{s}.nation" for s in schemas}
+    ids = []
+    for _ in range(3):
+        body = client.post("/query", json={"from": "JoinedNation3", "limit": 1}).get_json()
+        assert body["result_status"]["all_ok"] is True, body["result_status"]
+        assert len(body["objects"]) == 1
+        obj = body["objects"][0]
+        # The single object must include ALL three sources — not a fragment.
+        assert set(obj["data_sources"]) == expected_sources, obj
+        ids.append(obj["id"])
+    # Deterministic: the same identity is selected every run.
+    assert len(set(ids)) == 1, f"key selection was non-deterministic: {ids}"
