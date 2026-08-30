@@ -104,7 +104,6 @@ class ViewFlexModuleTool(Tool):
         )
         payload = {
             "catalog_name": catalog_name,
-            "version": body.get("version"),
             "line_count": total,
             "showing": {"start_line": lo, "end_line": hi},
             "source": numbered,

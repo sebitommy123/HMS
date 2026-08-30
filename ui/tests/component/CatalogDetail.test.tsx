@@ -35,7 +35,7 @@ const sampleRow = {
   properties: {} as Record<string, string>,
   status: "enabled" as const,
   last_error: null as string | null,
-  version: 1,
+  factory_count: 0,
   created_at: NOW,
   updated_at: NOW,
 };
@@ -60,8 +60,12 @@ describe("CatalogDetail", () => {
       expect(screen.getByRole("heading", { name: "tpch_demo" })).toBeInTheDocument();
     });
     expect(screen.getByTestId("status-enabled")).toBeInTheDocument();
-    expect(screen.getByTestId("trino-row")).toBeInTheDocument();
+    // In sync with Trino → no drift warnings surfaced (the redundant
+    // "registered in Trino" restatement was removed).
     expect(screen.queryByTestId("trino-missing")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("connector-mismatch")).not.toBeInTheDocument();
+    // Factory count is shown in the header.
+    expect(screen.getByTestId("detail-factory-count")).toHaveTextContent("0 factories");
   });
 
   it("surfaces connector mismatch when Trino has the wrong connector", async () => {

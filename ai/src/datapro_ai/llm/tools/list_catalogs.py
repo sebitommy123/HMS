@@ -36,7 +36,7 @@ class ListCatalogsTool(Tool):
             raise ToolError(f"Core returned HTTP {r.status_code}: {r.text[:500]}")
         catalogs = r.json()
         # Trim the response to the fields the model needs — no need to feed it
-        # timestamps and version numbers on every call.
+        # timestamps on every call.
         slim = [
             {
                 "name": c["name"],

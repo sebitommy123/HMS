@@ -56,7 +56,6 @@ const moduleRow = {
   id: "11111111-1111-4111-8111-111111111111",
   catalog_name: "my_flex",
   source_text: "def get_tables(): return []\n",
-  version: 1,
   created_at: NOW,
   updated_at: NOW,
 };
@@ -65,15 +64,22 @@ describe("FlexModuleEditor", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn()));
   afterEach(() => vi.unstubAllGlobals());
 
-  it("renders source read-only on first paint", async () => {
+  it("is collapsed on first paint, then expands read-only", async () => {
+    const user = userEvent.setup();
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       jsonResponse(moduleRow),
     );
     renderEditor();
 
+    // Collapsed by default: a placeholder, no editor, no Edit button.
     await waitFor(() =>
-      expect(screen.getByTestId("monaco-mock")).toBeInTheDocument(),
+      expect(screen.getByTestId("flex-source-collapsed")).toBeInTheDocument(),
     );
+    expect(screen.queryByTestId("monaco-mock")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("flex-edit-button")).not.toBeInTheDocument();
+
+    // Expand → the source shows read-only, and the Edit affordance appears.
+    await user.click(screen.getByTestId("flex-toggle-button"));
     const editor = screen.getByTestId("monaco-mock") as HTMLTextAreaElement;
     expect(editor).toHaveValue(moduleRow.source_text);
     expect(editor).toHaveAttribute("readonly");
@@ -101,13 +107,14 @@ describe("FlexModuleEditor", () => {
       }
       if (url.endsWith("/flex-modules/my_flex") && method === "PUT") {
         putBody = init?.body ? JSON.parse(init.body as string) : null;
-        return jsonResponse({ ...moduleRow, source_text: "edited", version: 2 });
+        return jsonResponse({ ...moduleRow, source_text: "edited" });
       }
       throw new Error(`unexpected fetch: ${method} ${url}`);
     });
 
     renderEditor();
-    await waitFor(() => screen.getByTestId("flex-edit-button"));
+    await waitFor(() => screen.getByTestId("flex-toggle-button"));
+    await user.click(screen.getByTestId("flex-toggle-button")); // expand source
 
     await user.click(screen.getByTestId("flex-edit-button"));
     const editor = screen.getByTestId("monaco-mock") as HTMLTextAreaElement;
@@ -155,7 +162,8 @@ describe("FlexModuleEditor", () => {
     });
 
     renderEditor();
-    await waitFor(() => screen.getByTestId("flex-edit-button"));
+    await waitFor(() => screen.getByTestId("flex-toggle-button"));
+    await user.click(screen.getByTestId("flex-toggle-button")); // expand source
     await user.click(screen.getByTestId("flex-edit-button"));
     await user.click(screen.getByTestId("flex-preview-button"));
 
@@ -184,7 +192,8 @@ describe("FlexModuleEditor", () => {
     });
 
     renderEditor();
-    await waitFor(() => screen.getByTestId("flex-edit-button"));
+    await waitFor(() => screen.getByTestId("flex-toggle-button"));
+    await user.click(screen.getByTestId("flex-toggle-button")); // expand source
     await user.click(screen.getByTestId("flex-edit-button"));
     const editor = screen.getByTestId("monaco-mock");
     await user.type(editor, "junk");

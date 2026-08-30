@@ -33,7 +33,7 @@ function cat(name: string, overrides: Record<string, unknown> = {}) {
     properties: {},
     status: "enabled",
     last_error: null,
-    version: 1,
+    factory_count: 0,
     created_at: ISO,
     updated_at: ISO,
     ...overrides,

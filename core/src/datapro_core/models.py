@@ -7,7 +7,6 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
-    Integer,
     String,
     UniqueConstraint,
 )
@@ -67,7 +66,6 @@ class Catalog(Base):
     properties: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String, nullable=False, default=CatalogStatus.ENABLED)
     last_error: Mapped[str | None] = mapped_column(String, nullable=True)
-    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -80,7 +78,6 @@ class Catalog(Base):
             "properties": self.properties,
             "status": self.status,
             "last_error": self.last_error,
-            "version": self.version,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -162,9 +159,7 @@ class FlexModule(Base):
 
     Exactly one row per flex catalog (unique on ``catalog_name``).
     Stored as plain text; the materializer writes it to the shared
-    volume Trino reads from. ``version`` increments on every successful
-    update so the UI can detect concurrent edits and the AI can refer
-    to a specific revision when needed.
+    volume Trino reads from.
     """
 
     __tablename__ = "flex_modules"
@@ -182,9 +177,6 @@ class FlexModule(Base):
         index=True,
     )
     source_text: Mapped[str] = mapped_column(String, nullable=False)
-    version: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=1, server_default="1"
-    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -195,7 +187,6 @@ class FlexModule(Base):
             "id": str(self.id),
             "catalog_name": self.catalog_name,
             "source_text": self.source_text,
-            "version": self.version,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

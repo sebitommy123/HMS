@@ -88,9 +88,9 @@ def test_partial_failure_does_not_block_other_actions(client, core_app):
         conn.execute(
             text(
                 "INSERT INTO catalogs "
-                "(name, connector, properties, status, version, created_at, updated_at) "
-                "VALUES (:n1, 'tpch', :p, 'enabled', 1, NOW(), NOW()), "
-                "       (:n2, :bad_conn, :p, 'enabled', 1, NOW(), NOW())"
+                "(name, connector, properties, status, created_at, updated_at) "
+                "VALUES (:n1, 'tpch', :p, 'enabled', NOW(), NOW()), "
+                "       (:n2, :bad_conn, :p, 'enabled', NOW(), NOW())"
             ),
             {
                 "n1": "good_one",
@@ -169,8 +169,8 @@ def test_reconcile_converges_multiple_drift_classes_at_once(client, core_app):
         conn.execute(
             text(
                 "INSERT INTO catalogs "
-                "(name, connector, properties, status, version, created_at, updated_at) "
-                "VALUES (:n, :c, :p, 'enabled', 1, NOW(), NOW())"
+                "(name, connector, properties, status, created_at, updated_at) "
+                "VALUES (:n, :c, :p, 'enabled', NOW(), NOW())"
             ),
             [
                 {"n": "missing", "c": "tpch", "p": "{}"},

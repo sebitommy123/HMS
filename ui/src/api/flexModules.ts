@@ -14,7 +14,6 @@ export const FlexModule = z.object({
   id: z.string().uuid(),
   catalog_name: z.string(),
   source_text: z.string(),
-  version: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),
 });

@@ -102,7 +102,9 @@ export function CatalogDetail() {
             <span className="text-sm text-zinc-600">
               uses connector <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">{row.connector}</code>
             </span>
-            <span className="text-sm text-zinc-500">v{row.version}</span>
+            <span className="text-sm text-zinc-500" data-testid="detail-factory-count">
+              {row.factory_count} {row.factory_count === 1 ? "factory" : "factories"}
+            </span>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -185,27 +187,24 @@ export function CatalogDetail() {
 
       <CatalogDataSourcesPanel catalogName={row.name} />
 
-      <Section title="Trino-side state">
-        {trinoState.isLoading ? (
-          <p className="text-sm text-zinc-500">Loading…</p>
-        ) : trinoRow ? (
-          <div className="rounded border border-zinc-200 bg-white p-4 text-sm" data-testid="trino-row">
-            <div>
-              Catalog <strong>{trinoRow.name}</strong> is currently registered in Trino,
-              using connector <code className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs">{trinoRow.connector}</code>.
-            </div>
-            {trinoRow.connector !== row.connector && (
-              <p className="mt-2 text-sm text-amber-700" data-testid="connector-mismatch">
-                ⚠ Connector mismatch — Postgres expects <strong>{row.connector}</strong> but Trino has <strong>{trinoRow.connector}</strong>. Reconcile will replace it.
-              </p>
-            )}
-          </div>
-        ) : (
+      {/* Trino-side state is only worth surfacing when it DIVERGES from the
+          desired (Postgres) state. A healthy, in-sync catalog needs no
+          restatement of what the header already shows (status + connector) —
+          drift is the only signal that earns space here. */}
+      {!trinoState.isLoading && !trinoRow && (
+        <Section title="Trino-side state">
           <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" data-testid="trino-missing">
             Not currently registered in Trino. Reconcile to create it.
           </div>
-        )}
-      </Section>
+        </Section>
+      )}
+      {trinoRow && trinoRow.connector !== row.connector && (
+        <Section title="Trino-side state">
+          <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700" data-testid="connector-mismatch">
+            ⚠ Connector mismatch — Postgres expects <strong>{row.connector}</strong> but Trino has <strong>{trinoRow.connector}</strong>. Reconcile will replace it.
+          </div>
+        </Section>
+      )}
 
       <Section title="Timestamps">
         <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm">

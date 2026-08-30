@@ -122,13 +122,12 @@ def test_create_flex_catalog_with_inline_source_materializes_and_queries(client,
     assert cat["properties"] == {}
     assert body["reconcile"]["all_ok"] is True
 
-    # FlexModule row exists with the original source + version=1.
+    # FlexModule row exists with the original source.
     r = client.get(f"/flex-modules/{name}")
     assert r.status_code == 200, r.get_json()
     mod = r.get_json()
     assert mod["catalog_name"] == name
     assert mod["source_text"] == SIMPLE_V1
-    assert mod["version"] == 1
 
     # Materialized file exists on disk and matches the source.
     on_disk = (Path(flex_modules_dir) / f"{name}.py").read_text()
@@ -155,7 +154,6 @@ def test_put_source_hot_swaps_schema_without_catalog_drop(client):
     time.sleep(1.1)
     r = client.put(f"/flex-modules/{name}", json={"source": SIMPLE_V2})
     assert r.status_code == 200, r.get_json()
-    assert r.get_json()["version"] == 2
 
     # Next query sees the new schema and the new row. No DROP+CREATE
     # happened — the catalog name is unchanged from the client's
@@ -212,7 +210,6 @@ def test_substring_replace_edits_source(client):
         json={"old_text": '"first"', "new_text": '"first_edited"'},
     )
     assert r.status_code == 200, r.get_json()
-    assert r.get_json()["version"] == 2
 
     _query_rows_eventually(
         client,

@@ -71,7 +71,7 @@ function CatalogsTable({ rows }: { rows: Awaited<ReturnType<typeof listCatalogs>
             <Th>Connector</Th>
             <Th>Status</Th>
             <Th>Properties</Th>
-            <Th>Version</Th>
+            <Th>Factories</Th>
             <Th>Updated</Th>
           </tr>
         </thead>
@@ -108,7 +108,9 @@ function CatalogsTable({ rows }: { rows: Awaited<ReturnType<typeof listCatalogs>
                 <span className="text-zinc-600">{summarizeProperties(row.properties)}</span>
               </Td>
               <Td>
-                <span className="text-zinc-600">v{row.version}</span>
+                <span className="text-zinc-600" data-testid={`factory-count-${row.name}`}>
+                  {row.factory_count}
+                </span>
               </Td>
               <Td>
                 <span className="text-zinc-600" title={row.updated_at}>

@@ -4,7 +4,7 @@ The catalog row owns the lifecycle (CREATE / DELETE come through
 ``/catalogs``); this blueprint is for *source* operations on an
 already-registered flex catalog:
 
-  GET  /flex-modules/{name}                     read current source + version
+  GET  /flex-modules/{name}                     read current source
   PUT  /flex-modules/{name}                     replace source (hot-swap)
   POST /flex-modules/{name}/replace             substring replacement (AI surface)
   POST /flex-modules/{name}/replace-lines       line-range replacement (AI surface)
@@ -209,7 +209,7 @@ def replace_lines(name: str):
 
 def _persist_source(catalog_name: str, source: str):
     """Shared tail end of every "this is the new source" path: syntax
-    check, atomic write, persist row, bump version."""
+    check, atomic write, persist row."""
     ok, err = _validate_python(source)
     if not ok:
         return (
@@ -233,7 +233,6 @@ def _persist_source(catalog_name: str, source: str):
                 500,
             )
         row.source_text = source
-        row.version = (row.version or 0) + 1
         session.commit()
         return jsonify(row.to_dict()), 200
 

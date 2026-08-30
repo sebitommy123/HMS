@@ -29,6 +29,9 @@ export function FlexModuleEditor({ catalogName }: { catalogName: string }) {
   });
 
   const [editing, setEditing] = useState(false);
+  // Collapsed by default: the source can be long, and operators shouldn't have
+  // to scroll past it on every visit. Editing always forces it open.
+  const [collapsed, setCollapsed] = useState(true);
   const [draft, setDraft] = useState<string>("");
   const [preview, setPreview] = useState<FlexPreviewResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -91,32 +94,56 @@ export function FlexModuleEditor({ catalogName }: { catalogName: string }) {
 
   const row = module_.data;
   const dirty = editing && draft !== row.source_text;
+  const expanded = !collapsed || editing;
+  const lineCount = row.source_text.split("\n").length;
 
   return (
     <>
       <Section
         title="Flex module source"
-        meta={`v${row.version}`}
         action={
           editing ? null : (
-            <button
-              type="button"
-              onClick={() => setEditing(true)}
-              className="rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-              data-testid="flex-edit-button"
-            >
-              Edit
-            </button>
+            <div className="flex items-center gap-2">
+              {expanded && (
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                  data-testid="flex-edit-button"
+                >
+                  Edit
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setCollapsed((c) => !c)}
+                className="rounded border border-zinc-200 bg-white px-2.5 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                data-testid="flex-toggle-button"
+              >
+                {expanded ? "Hide" : "Show source"}
+              </button>
+            </div>
           )
         }
       >
-        <CodeEditor
-          value={editing ? draft : row.source_text}
-          onChange={editing ? setDraft : undefined}
-          height="450px"
-          readOnly={!editing}
-          testId="flex-source-editor"
-        />
+        {!expanded ? (
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="w-full rounded border border-dashed border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-sm text-zinc-500 hover:bg-zinc-100"
+            data-testid="flex-source-collapsed"
+          >
+            {lineCount} {lineCount === 1 ? "line" : "lines"} of Python — click to view
+          </button>
+        ) : (
+          <CodeEditor
+            value={editing ? draft : row.source_text}
+            onChange={editing ? setDraft : undefined}
+            height="450px"
+            readOnly={!editing}
+            testId="flex-source-editor"
+          />
+        )}
 
         {error && (
           <div

@@ -16,9 +16,9 @@ class GetCatalogTool(Tool):
             "name": self.name,
             "description": (
                 "Fetch details for a single registered catalog by name: its "
-                "connector, status, last error, configuration properties, and "
-                "version. Use this to diagnose a broken catalog or to inspect "
-                "its configuration. Use list_catalogs first if you don't know "
+                "connector, status, last error, and configuration properties. "
+                "Use this to diagnose a broken catalog or to inspect its "
+                "configuration. Use list_catalogs first if you don't know "
                 "the name."
             ),
             "input_schema": {

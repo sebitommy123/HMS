@@ -68,6 +68,35 @@ def test_create_then_list_then_get(client):
     assert client.get(f"/object-factories/{factory_id}").get_json()["id"] == factory_id
 
 
+def test_catalog_factory_count(client):
+    """The /catalogs listing reports factory_count per catalog — the number of
+    object factories anchored to that catalog's data sources."""
+    cat = _create_catalog(client)
+
+    def count_for(name: str) -> int:
+        rows = client.get("/catalogs").get_json()
+        return next(c["factory_count"] for c in rows if c["name"] == name)
+
+    # Fresh catalog: no factories yet.
+    assert count_for(cat) == 0
+
+    # Two factories across two (data_source, type) pairs in this catalog.
+    type_a = _create_type(client, "Company")
+    type_b = _create_type(client, "Region")
+    src_nation = _create_source(client, cat, "tiny", "nation")
+    src_region = _create_source(client, cat, "tiny", "region")
+    for src, ty in ((src_nation, type_a), (src_region, type_b)):
+        r = client.post(
+            "/object-factories",
+            json={"data_source_id": src, "object_type_id": ty},
+        )
+        assert r.status_code == 201, r.get_json()
+
+    assert count_for(cat) == 2
+    # get_catalog reports the same count.
+    assert client.get(f"/catalogs/{cat}").get_json()["factory_count"] == 2
+
+
 def test_create_defaults(client):
     _create_catalog(client)
     source_id = _create_source(client)

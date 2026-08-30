@@ -10,7 +10,7 @@ export const Catalog = z.object({
   properties: z.record(z.string(), z.string()),
   status: CatalogStatus,
   last_error: z.string().nullable(),
-  version: z.number(),
+  factory_count: z.number().int().nonnegative(),
   created_at: z.string(),
   updated_at: z.string(),
 });

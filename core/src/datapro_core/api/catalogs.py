@@ -1,8 +1,15 @@
 from flask import Blueprint, current_app, jsonify, request
 from pydantic import ValidationError
+from sqlalchemy import func
 
 from datapro_core import flex_module_materializer as flex_materializer
-from datapro_core.models import Catalog, CatalogStatus, FlexModule
+from datapro_core.models import (
+    Catalog,
+    CatalogStatus,
+    DataSource,
+    FlexModule,
+    ObjectFactory,
+)
 from datapro_core.reconciler import reconcile
 from datapro_core.schemas import CatalogCreateRequest, CatalogUpdateRequest
 from datapro_core.trino_client import TrinoError
@@ -19,24 +26,44 @@ def _trino():
     return current_app.extensions["trino"]
 
 
-def _public_catalog(row: Catalog) -> dict:
+def _public_catalog(row: Catalog, factory_count: int) -> dict:
     """Serialize a catalog for the client. A flex catalog's only property is
     ``flex.module_path`` — a Core-managed implementation detail (where the
     materialized module lives inside the Trino container). It's neither useful
     nor safe for clients to see or edit (removing it breaks the catalog), so we
     redact flex properties on the way out. Editing is blocked in the PATCH
-    handler; hiding them here keeps the UI/agent from surfacing them at all."""
+    handler; hiding them here keeps the UI/agent from surfacing them at all.
+
+    ``factory_count`` is the number of object factories anchored to this
+    catalog's data sources (see ``_factory_counts``)."""
     d = row.to_dict()
     if row.connector == "flex":
         d["properties"] = {}
+    d["factory_count"] = factory_count
     return d
+
+
+def _factory_counts(session, names: list[str] | None = None) -> dict[str, int]:
+    """Map catalog_name → number of object factories anchored to it. A factory
+    belongs to a catalog via its data source
+    (ObjectFactory → DataSource.catalog_name). One grouped query for the whole
+    set (no N+1); pass ``names`` to restrict to specific catalogs."""
+    q = (
+        session.query(DataSource.catalog_name, func.count(ObjectFactory.id))
+        .join(ObjectFactory, ObjectFactory.data_source_id == DataSource.id)
+        .group_by(DataSource.catalog_name)
+    )
+    if names is not None:
+        q = q.filter(DataSource.catalog_name.in_(names))
+    return {name: count for name, count in q.all()}
 
 
 @bp.get("/catalogs")
 def list_catalogs():
     with _session() as session:
         rows = session.query(Catalog).order_by(Catalog.name).all()
-        return jsonify([_public_catalog(r) for r in rows])
+        counts = _factory_counts(session)
+        return jsonify([_public_catalog(r, counts.get(r.name, 0)) for r in rows])
 
 
 @bp.get("/catalogs/<name>")
@@ -45,7 +72,8 @@ def get_catalog(name: str):
         row = session.get(Catalog, name)
         if row is None:
             return jsonify({"error": "not_found", "name": name}), 404
-        return jsonify(_public_catalog(row))
+        counts = _factory_counts(session, [name])
+        return jsonify(_public_catalog(row, counts.get(name, 0)))
 
 
 @bp.post("/catalogs")
@@ -137,7 +165,7 @@ def create_catalog():
         )
         session.add(row)
         if flex_source is not None:
-            session.add(FlexModule(catalog_name=payload.name, source_text=flex_source, version=1))
+            session.add(FlexModule(catalog_name=payload.name, source_text=flex_source))
         session.commit()
 
         # Synchronous reconcile so the operator sees the outcome.
@@ -145,7 +173,7 @@ def create_catalog():
         # Re-fetch to pick up status updates from reconcile.
         row = session.get(Catalog, payload.name)
         body = {
-            "catalog": _public_catalog(row),
+            "catalog": _public_catalog(row, _factory_counts(session, [payload.name]).get(payload.name, 0)),
             "reconcile": {
                 "all_ok": result.all_ok,
                 "actions": [
@@ -235,7 +263,8 @@ def update_catalog(name: str):
         if not changed:
             # No-op patch. Don't touch Trino, don't reconcile — return current
             # state so the operator can see what's on file.
-            return jsonify({"catalog": _public_catalog(row), "reconcile": None}), 200
+            count = _factory_counts(session, [name]).get(name, 0)
+            return jsonify({"catalog": _public_catalog(row, count), "reconcile": None}), 200
 
         # Reset to ENABLED so reconcile recreates the catalog in Trino. If the
         # previous state was BROKEN we want this PATCH to give it another shot
@@ -260,10 +289,11 @@ def update_catalog(name: str):
             row.status = CatalogStatus.BROKEN
             row.last_error = f"pre-reconcile drop failed: {exc}"
             session.commit()
+            count = _factory_counts(session, [name]).get(name, 0)
             return (
                 jsonify(
                     {
-                        "catalog": _public_catalog(row),
+                        "catalog": _public_catalog(row, count),
                         "reconcile": {
                             "all_ok": False,
                             "actions": [],
@@ -277,7 +307,7 @@ def update_catalog(name: str):
         result = reconcile(session, trino)
         row = session.get(Catalog, name)
         body = {
-            "catalog": _public_catalog(row),
+            "catalog": _public_catalog(row, _factory_counts(session, [name]).get(name, 0)),
             "reconcile": {
                 "all_ok": result.all_ok,
                 "actions": [

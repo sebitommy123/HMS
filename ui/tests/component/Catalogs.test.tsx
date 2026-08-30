@@ -53,7 +53,7 @@ describe("Catalogs page", () => {
           properties: {},
           status: "enabled",
           last_error: null,
-          version: 1,
+          factory_count: 3,
           created_at: now,
           updated_at: now,
         },
@@ -63,7 +63,7 @@ describe("Catalogs page", () => {
           properties: { "connection-url": "jdbc:postgresql://nowhere.invalid:5432/x" },
           status: "broken",
           last_error: "CREATE CATALOG failed: TrinoError: oops",
-          version: 1,
+          factory_count: 0,
           created_at: now,
           updated_at: now,
         },
@@ -79,6 +79,9 @@ describe("Catalogs page", () => {
     expect(screen.getByTestId("status-enabled")).toBeInTheDocument();
     expect(screen.getByTestId("status-broken")).toBeInTheDocument();
     expect(screen.getByTestId("last-error-broken_one")).toBeInTheDocument();
+    // Factory-count column reflects each catalog's factory total.
+    expect(screen.getByTestId("factory-count-tpch_demo")).toHaveTextContent("3");
+    expect(screen.getByTestId("factory-count-broken_one")).toHaveTextContent("0");
   });
 
   it("renders an error state on fetch failure", async () => {
