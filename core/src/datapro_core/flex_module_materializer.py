@@ -62,6 +62,13 @@ def write(config: Config, catalog_name: str, source_text: str) -> Path:
         prefix=f".{catalog_name}.", suffix=".py.tmp", dir=str(target.parent)
     )
     try:
+        # mkstemp forces mode 0600. The flex worker runs INSIDE the Trino
+        # container as uid 1000 (trino), while this host-owned file bind-mounts
+        # as root — so at 0600 the worker gets EACCES importing the module. Make
+        # it world-readable (it's non-secret Python source). On macOS this is a
+        # harmless no-op (Docker Desktop squashes ownership); on Linux it's the
+        # difference between the flex catalog working and not.
+        os.fchmod(fd, 0o644)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(source_text)
         os.replace(tmp_name, target)
