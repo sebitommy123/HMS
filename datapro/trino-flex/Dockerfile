@@ -44,7 +44,11 @@ RUN /opt/flex-venv/bin/pip install --no-cache-dir /tmp/flex-runtime
 
 # ---- stage 2: final Trino image with Python + flex plugin --------------
 
-FROM docker.io/trinodb/trino:latest
+# Pinned to match flex/connector/pom.xml's trino.version. The flex connector is
+# compiled against a specific trino-spi; if the runtime image drifts to a newer
+# Trino, SPI signatures (e.g. ConnectorSplitManager.getSplits) change and queries
+# fail at scan time with AbstractMethodError. Bump this and the pom together.
+FROM docker.io/trinodb/trino:483
 
 USER root
 
