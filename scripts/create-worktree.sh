@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Create an isolated git worktree (named by a random UUID) off the current HEAD,
-# and copy in the local-only files needed to run the stack — so you can work in
-# throwaway worktrees and never touch the main clone.
+# Create an isolated git worktree (named by a random UUID) off the latest
+# origin/main, and copy in the local-only files needed to run the stack — so you
+# can work in throwaway worktrees and never touch the main clone.
 #
 # What gets copied: only the gitignored files that CAN'T be regenerated — the
 # Anthropic key (ai/key.sh) and any local config overrides. Everything else
@@ -12,7 +12,9 @@
 #   scripts/create-worktree.sh                 # worktree under .worktrees/<uuid>
 #   WORKTREE_BASE=/some/dir scripts/create-worktree.sh
 #
-# The worktree gets its own branch, wt/<uuid>, based on the current HEAD.
+# The worktree branches wt/<uuid> off origin/main. The script fetches and refuses
+# to run unless local main already equals origin/main, so a worktree never starts
+# from a stale base (and its commits can always fast-forward back onto main).
 
 source "$(dirname "$0")/_lib.sh"
 
@@ -30,6 +32,24 @@ LOCAL_FILES=(
   ".claude/settings.local.json"           # local Claude Code settings
 )
 
+# Worktrees must start from the latest pushed main — otherwise a new branch is
+# based on a stale commit and silently misses work (and can't fast-forward back
+# onto origin/main). Fetch, then require local main to be exactly origin/main
+# before doing anything.
+log "Checking main is up to date with origin…"
+git -C "$HMS_ROOT" fetch --quiet origin main
+
+local_main="$(git -C "$HMS_ROOT" rev-parse --verify --quiet main || true)"
+origin_main="$(git -C "$HMS_ROOT" rev-parse --verify --quiet origin/main || true)"
+if [[ -z "$local_main" || -z "$origin_main" ]]; then
+  die "Couldn't resolve main / origin/main — is this the HMS repo with an 'origin' remote?"
+fi
+if [[ "$local_main" != "$origin_main" ]]; then
+  die "Local main ($(git -C "$HMS_ROOT" rev-parse --short main)) is not at origin/main ($(git -C "$HMS_ROOT" rev-parse --short origin/main)).
+    A worktree would start from a stale base. Sync main first, e.g.:
+      git -C \"$HMS_ROOT\" switch main && git pull --ff-only"
+fi
+
 # A random UUID for the branch + directory (uuidgen on mac/linux; fallbacks).
 uuid="$(uuidgen 2>/dev/null | tr '[:upper:]' '[:lower:]')"
 if [[ -z "$uuid" ]]; then
@@ -44,7 +64,9 @@ printf '  branch: %s\n' "$branch"
 printf '  path:   %s\n' "$dest"
 
 mkdir -p "$WORKTREE_BASE"
-git -C "$HMS_ROOT" worktree add -b "$branch" "$dest" HEAD
+# Base off main (verified above to equal origin/main), not HEAD, so worktrees are
+# always cut from the latest pushed state regardless of where this is run from.
+git -C "$HMS_ROOT" worktree add -b "$branch" "$dest" main
 
 # Carry over the local-only files that exist in this clone.
 copied=0
