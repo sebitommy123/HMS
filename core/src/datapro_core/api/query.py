@@ -9,6 +9,7 @@ without executing it.
 
 from flask import Blueprint, current_app, jsonify, request
 
+from datapro_core.api._env import BadEnv, env_from_request
 from datapro_core.query.service import (
     ParseError,
     PlanError,
@@ -35,7 +36,11 @@ def execute_query():
 
     with _session() as session:
         try:
-            result = run_query(raw, session=session, trino=_trino())
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        try:
+            result = run_query(raw, session=session, trino=_trino(), env=env)
         except ParseError as exc:
             return jsonify({"error": exc.error, "details": exc.details}), 400
         except PlanError as exc:
@@ -52,7 +57,11 @@ def preview_query_plan():
 
     with _session() as session:
         try:
-            plan = plan_only(raw, session=session, trino=_trino())
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        try:
+            plan = plan_only(raw, session=session, trino=_trino(), env=env)
         except ParseError as exc:
             return jsonify({"error": exc.error, "details": exc.details}), 400
         except PlanError as exc:

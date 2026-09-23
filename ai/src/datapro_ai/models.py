@@ -39,6 +39,13 @@ class Conversation(Base):
     title: Mapped[str] = mapped_column(String, nullable=False, default="New conversation")
     model: Mapped[str] = mapped_column(String, nullable=False)
     system_prompt: Mapped[str | None] = mapped_column(String, nullable=True)
+    # The chat's staging changeset: an ordered list of Action dicts (the ONLY
+    # durable thing the agent authors — see datapro_ai.staging.actions). The
+    # staging env is derived from this by replaying it; nothing else persists.
+    changeset: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
+    # Saved acceptance tests the agent wrote to prove the changeset works. Each
+    # is a small dict ({name, query|raw_sql, expect}); re-run before promoting.
+    stage_tests: Mapped[list] = mapped_column(JSON, nullable=False, default=list, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
@@ -56,6 +63,8 @@ class Conversation(Base):
             "title": self.title,
             "model": self.model,
             "system_prompt": self.system_prompt,
+            "changeset": list(self.changeset or []),
+            "stage_tests": list(self.stage_tests or []),
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

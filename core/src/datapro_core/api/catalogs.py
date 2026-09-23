@@ -10,8 +10,14 @@ from datapro_core.models import (
     FlexModule,
     ObjectFactory,
 )
+from datapro_core.api._env import BadEnv, env_from_request
 from datapro_core.reconciler import reconcile
 from datapro_core.schemas import CatalogCreateRequest, CatalogUpdateRequest
+from datapro_core.staging.env import (
+    catalogs_in,
+    physical_catalog_name,
+    resolve_catalog,
+)
 from datapro_core.trino_client import TrinoError
 
 
@@ -61,7 +67,11 @@ def _factory_counts(session, names: list[str] | None = None) -> dict[str, int]:
 @bp.get("/catalogs")
 def list_catalogs():
     with _session() as session:
-        rows = session.query(Catalog).order_by(Catalog.name).all()
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        rows = sorted(catalogs_in(session, env), key=lambda c: c.logical_name)
         counts = _factory_counts(session)
         return jsonify([_public_catalog(r, counts.get(r.name, 0)) for r in rows])
 
@@ -69,11 +79,16 @@ def list_catalogs():
 @bp.get("/catalogs/<name>")
 def get_catalog(name: str):
     with _session() as session:
-        row = session.get(Catalog, name)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        # ``name`` is a logical name resolved within the env overlay.
+        row = resolve_catalog(session, env, name)
         if row is None:
             return jsonify({"error": "not_found", "name": name}), 404
-        counts = _factory_counts(session, [name])
-        return jsonify(_public_catalog(row, counts.get(name, 0)))
+        counts = _factory_counts(session, [row.name])
+        return jsonify(_public_catalog(row, counts.get(row.name, 0)))
 
 
 @bp.post("/catalogs")
@@ -97,9 +112,23 @@ def create_catalog():
         return jsonify({"error": "invalid_json", "details": str(exc)}), 400
 
     with _session() as session:
-        existing = session.get(Catalog, payload.name)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+
+        logical_name = payload.name
+        # Physical name = what Trino registers. Prod: == logical. Env: mangled
+        # so it can't collide with prod or another env in Trino's flat namespace.
+        physical_name = physical_catalog_name(env, logical_name)
+
+        # A catalog's logical name must be free in this env's overlay — prod
+        # catalogs count, so an env can't shadow-rewrite a prod catalog in place
+        # (keeps promote a clean flip, never a physical rename). Modifying a prod
+        # catalog from an env is out of scope; make a new env-local one instead.
+        existing = resolve_catalog(session, env, logical_name)
         if existing is not None:
-            return jsonify({"error": "already_exists", "name": payload.name}), 409
+            return jsonify({"error": "already_exists", "name": logical_name}), 409
 
         # Flex catalogs get an extra materialization step: write the
         # source to the shared volume + auto-populate flex.module_path
@@ -128,7 +157,7 @@ def create_catalog():
                 flex_source = payload.source
                 cfg = current_app.config["DATAPRO"]
                 try:
-                    flex_materializer.write(cfg, payload.name, flex_source)
+                    flex_materializer.write(cfg, physical_name, flex_source)
                 except Exception as exc:
                     return (
                         jsonify(
@@ -140,7 +169,7 @@ def create_catalog():
                         500,
                     )
                 properties["flex.module_path"] = flex_materializer.container_path_for(
-                    cfg, payload.name
+                    cfg, physical_name
                 )
             elif "flex.module_path" not in properties:
                 return (
@@ -158,22 +187,24 @@ def create_catalog():
                 )
 
         row = Catalog(
-            name=payload.name,
+            name=physical_name,
+            logical_name=logical_name,
+            env_id=env,
             connector=payload.connector,
             properties=properties,
             status=CatalogStatus.ENABLED,
         )
         session.add(row)
         if flex_source is not None:
-            session.add(FlexModule(catalog_name=payload.name, source_text=flex_source))
+            session.add(FlexModule(catalog_name=physical_name, source_text=flex_source))
         session.commit()
 
         # Synchronous reconcile so the operator sees the outcome.
         result = reconcile(session, _trino())
         # Re-fetch to pick up status updates from reconcile.
-        row = session.get(Catalog, payload.name)
+        row = session.get(Catalog, physical_name)
         body = {
-            "catalog": _public_catalog(row, _factory_counts(session, [payload.name]).get(payload.name, 0)),
+            "catalog": _public_catalog(row, _factory_counts(session, [physical_name]).get(physical_name, 0)),
             "reconcile": {
                 "all_ok": result.all_ok,
                 "actions": [
@@ -227,9 +258,30 @@ def update_catalog(name: str):
         )
 
     with _session() as session:
-        row = session.get(Catalog, name)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        row = resolve_catalog(session, env, name)
         if row is None:
             return jsonify({"error": "not_found", "name": name}), 404
+        # Editing a prod catalog from inside an env would mutate prod — forbidden.
+        # The resolver copy-on-writes instead (creates an env shadow); a direct
+        # PATCH ?env=E on a prod-only catalog is a client error.
+        if env is not None and row.env_id != env:
+            return (
+                jsonify(
+                    {
+                        "error": "prod_catalog_immutable_in_env",
+                        "details": (
+                            "This catalog belongs to production. To change it in a "
+                            "staging env, create an env-local catalog instead."
+                        ),
+                    }
+                ),
+                409,
+            )
+        physical = row.name
 
         # Flex catalog properties (flex.module_path) are Core-managed and not
         # client-editable — removing/changing the path just breaks the catalog.
@@ -263,7 +315,7 @@ def update_catalog(name: str):
         if not changed:
             # No-op patch. Don't touch Trino, don't reconcile — return current
             # state so the operator can see what's on file.
-            count = _factory_counts(session, [name]).get(name, 0)
+            count = _factory_counts(session, [physical]).get(physical, 0)
             return jsonify({"catalog": _public_catalog(row, count), "reconcile": None}), 200
 
         # Reset to ENABLED so reconcile recreates the catalog in Trino. If the
@@ -280,8 +332,8 @@ def update_catalog(name: str):
         # change would be invisible to it and Trino would keep stale props.
         try:
             existing_in_trino = {s.name for s in trino.list_catalogs()}
-            if name in existing_in_trino:
-                trino.drop_catalog(name)
+            if physical in existing_in_trino:
+                trino.drop_catalog(physical)
         except TrinoError as exc:
             # If we can't reach Trino to drop, fail loudly — the operator
             # needs to know Trino is unreachable rather than silently leaving
@@ -289,7 +341,7 @@ def update_catalog(name: str):
             row.status = CatalogStatus.BROKEN
             row.last_error = f"pre-reconcile drop failed: {exc}"
             session.commit()
-            count = _factory_counts(session, [name]).get(name, 0)
+            count = _factory_counts(session, [physical]).get(physical, 0)
             return (
                 jsonify(
                     {
@@ -305,9 +357,9 @@ def update_catalog(name: str):
             )
 
         result = reconcile(session, trino)
-        row = session.get(Catalog, name)
+        row = session.get(Catalog, physical)
         body = {
-            "catalog": _public_catalog(row, _factory_counts(session, [name]).get(name, 0)),
+            "catalog": _public_catalog(row, _factory_counts(session, [physical]).get(physical, 0)),
             "reconcile": {
                 "all_ok": result.all_ok,
                 "actions": [
@@ -327,17 +379,39 @@ def update_catalog(name: str):
 @bp.delete("/catalogs/<name>")
 def delete_catalog(name: str):
     with _session() as session:
-        row = session.get(Catalog, name)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        row = resolve_catalog(session, env, name)
         if row is None:
             return jsonify({"error": "not_found", "name": name}), 404
+        physical = row.name
         is_flex = row.connector == "flex"
+        if env is not None and row.env_id != env:
+            # Deleting a prod catalog from an env is a *tombstone*, not a real
+            # delete: write an env-local deleted shadow so the overlay hides it
+            # here and promote drops the prod row. Prod stays untouched now.
+            session.add(
+                Catalog(
+                    name=physical_catalog_name(env, row.logical_name),
+                    logical_name=row.logical_name,
+                    env_id=env,
+                    deleted=True,
+                    connector=row.connector,
+                    properties={},
+                    status=CatalogStatus.DISABLED,
+                )
+            )
+            session.commit()
+            return jsonify({"deleted": name, "reconcile": None})
         session.delete(row)  # cascades to flex_modules row via FK
         session.commit()
         if is_flex:
             # Garbage-collect the materialized file. Best-effort; failures
             # here don't roll back the catalog delete (DB is the source
             # of truth, the file is just a cache).
-            flex_materializer.delete(current_app.config["DATAPRO"], name)
+            flex_materializer.delete(current_app.config["DATAPRO"], physical)
         result = reconcile(session, _trino())
         return jsonify(
             {

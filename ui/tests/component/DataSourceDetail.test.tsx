@@ -39,6 +39,7 @@ const sample = {
   table_name: "nation",
   path: "tpch_demo.tiny.nation",
   description: "TPCH nation",
+  status: "active",
   created_at: ISO,
   updated_at: ISO,
 };

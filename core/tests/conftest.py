@@ -334,3 +334,6 @@ def _reset(config, request, core_app):
         conn.execute(text("TRUNCATE TABLE flex_modules"))
         conn.execute(text("TRUNCATE TABLE catalogs CASCADE"))
         conn.execute(text("TRUNCATE TABLE object_types CASCADE"))
+        # Staging environments + everything scoped to them (cascades via the
+        # env_id FKs, but the parent tables above are already cleared).
+        conn.execute(text("TRUNCATE TABLE environments CASCADE"))

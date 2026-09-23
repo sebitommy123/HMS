@@ -4,6 +4,7 @@ Endpoints call into here so they don't have to know about the internal
 module split. Keep it skinny — it really is just glue.
 """
 
+import uuid
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,15 +21,17 @@ def plan_only(
     *,
     session: Session,
     trino: TrinoClient,
+    env: uuid.UUID | None = None,
 ) -> QueryPlan:
     """Parse + plan + return without executing. Powers /preview-query-plan.
 
     Live-catalog set comes from Trino so the plan reflects what would
-    actually run *right now* (vs. relying on a cached snapshot)."""
+    actually run *right now* (vs. relying on a cached snapshot). ``env`` scopes
+    resolution to a staging overlay."""
     query = parse_query(raw)
     live_catalogs = _safe_list_catalogs(trino)
     return build_plan(
-        query, session=session, trino=trino, live_catalogs=live_catalogs
+        query, session=session, trino=trino, live_catalogs=live_catalogs, env=env
     )
 
 
@@ -37,9 +40,10 @@ def run_query(
     *,
     session: Session,
     trino: TrinoClient,
+    env: uuid.UUID | None = None,
 ) -> QueryResult:
     """Parse + plan + execute, return the final QueryResult."""
-    plan = plan_only(raw, session=session, trino=trino)
+    plan = plan_only(raw, session=session, trino=trino, env=env)
     return execute(plan, trino)
 
 

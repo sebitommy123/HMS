@@ -9,7 +9,11 @@ export function Layout() {
   // The /chats routes ARE the full-screen "expanded" chat view — showing the
   // rail there would be a redundant second copy, so hide it. Everywhere else
   // the rail is always present.
-  const showChatRail = !(pathname === "/chats" || pathname.startsWith("/chats/"));
+  const isChat = pathname === "/chats" || pathname.startsWith("/chats/");
+  // The /chats routes ARE the full-screen "expanded" chat view — showing the
+  // rail there would be a redundant second copy, so hide it. Everywhere else
+  // the rail is always present.
+  const showChatRail = !isChat;
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-zinc-50">
@@ -32,7 +36,15 @@ export function Layout() {
       <div className="flex min-h-0 flex-1">
         {showChatRail && <ChatSidePanel />}
         <main className="min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-6xl px-6 py-8">
+          {/* The chat view spreads to the full width so the conversation and the
+              staged-changes column both get real room; other pages stay in a
+              readable centered column. */}
+          <div
+            className={cn(
+              "mx-auto w-full px-6 py-8",
+              isChat ? "max-w-none" : "max-w-6xl",
+            )}
+          >
             <Outlet />
           </div>
         </main>

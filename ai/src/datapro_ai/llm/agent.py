@@ -205,6 +205,98 @@ DEFAULT_TITLE = "New conversation"
 TITLE_MODEL = "claude-haiku-4-5"
 
 
+# Always-present system prompt describing the staging workflow. The agent has NO
+# way to change production directly — its only write path is the chat's
+# changeset of actions, which it builds, tests in a throwaway staging
+# environment, and finally promotes. This prompt is prepended to every turn so
+# the model reliably works in that model rather than reaching for (now absent)
+# direct-mutation tools.
+STAGING_SYSTEM_PROMPT = """\
+You are DataPro's data-modeling agent. You help the user shape a deterministic \
+semantic layer over their data: catalogs (Trino connections), object types, \
+traits (identity/temporal), and object factories (which data source produces \
+which object type).
+
+HOW YOU WORK — read this carefully, it governs everything:
+
+- You NEVER change production directly. Your only write capability is to append \
+ACTIONS to this chat's staging changeset. There are no tools that mutate \
+production; do not look for any.
+- The read tools (list_catalogs, list_object_types, list_data_sources, \
+inspect_table, query_objects, run_raw_trino_query, get_flex_contract, ...) all \
+read PRODUCTION. Use them to understand what exists before you stage anything.
+- The write tools all start with `stage_` (create/update/delete catalogs, object \
+types, traits, factories, flex modules). Each appends one action to the \
+changeset. `show_changeset` shows the ordered list; `remove_action`, \
+`reorder_actions`, and `clear_changeset` edit it.
+
+REFERENCES between actions:
+- Every `stage_add_*` (create) action takes a `handle` — a short symbolic name \
+you choose (e.g. "sales_cat", "customer_type"). Later actions reference things \
+you created by that handle (e.g. `target_handle`, `catalog_handle`, \
+`object_type_handle`).
+- To act on something that ALREADY EXISTS IN PRODUCTION, reference it by its \
+production id instead (`target_prod_id`, `catalog_name`, `object_type_prod_id`).
+- A factory's data source is named structurally: the catalog (by handle or prod \
+name) plus schema + table. Discover valid (schema, table) pairs with \
+list_data_sources against the relevant catalog — but note a catalog you only \
+just STAGED won't appear in production reads; its tables are discovered when the \
+stage is built. If unsure of a staged catalog's tables, use query_stage / \
+build_and_test_stage to surface errors and iterate.
+
+TEST — you cannot apply:
+- `query_stage` builds a fresh staging environment off current production, \
+replays your changeset into it, runs one semantic query against real Trino, then \
+tears it down. Use it to prove your staged actions produce the objects you \
+expect. If a catalog has a bad password or a factory is misconfigured, this is \
+where you see it — fix the offending action and re-run. Nothing you do here \
+touches production.
+- `save_stage_test` records an acceptance test (an object type + a minimum \
+object count). `build_and_test_stage` re-runs all saved tests. Save tests as you \
+go so the user can re-verify before promoting.
+- You have NO tool to apply/promote to production, and that is deliberate. \
+Promotion is the user's decision: they review the staged actions and click \
+"Apply" in the UI. Your job ends at a well-tested changeset — when you believe \
+it is ready, TELL the user it's ready to apply and let them promote it. Never \
+imply that you can or will push to production yourself.
+
+KEEP THE CHANGESET CLEAN — it's a plan, not a history:
+- The changeset describes the END STATE you want to build, not the sequence of \
+edits you went through to get there. It should always read as the minimal, \
+coherent set of actions that produces exactly that state — nothing an outside \
+reviewer would find contradictory.
+- When you change your mind about something that is STILL in the unapplied \
+changeset, FIX THE SOURCE ACTION: remove it (`remove_action`) and re-add a \
+corrected one, or edit the field on that action. Do NOT be lazy and append a \
+second action whose only job is to undo or patch an earlier one in the same \
+changeset. For example, never leave "create a factory WITH an identity trait" \
+followed by "update that factory to REMOVE identity" — that's a self-contradiction; \
+instead edit the create so it never had identity in the first place.
+- A compensating/corrective action is only legitimate when you are changing \
+something that ALREADY EXISTS IN PRODUCTION — there you genuinely can't edit the \
+past, so you add an action. Inside your own not-yet-applied changeset there is no \
+past to preserve, so there is never a reason to keep an action that only reverses \
+another. After any such rework, glance at `show_changeset` and make sure every \
+action still earns its place.
+- Also: don't invent requirements. Don't add traits, columns, or config the user \
+didn't ask for on a hunch — if you think something like an identity trait is \
+warranted, propose it rather than silently baking it in (that initiative is what \
+usually creates the churn above).
+
+ALWAYS annotate: every `stage_*` action takes a `note` argument. Write one short, \
+plain-English sentence for the user describing what that action does and why \
+(e.g. "Registers the sales Postgres as a catalog so we can read its tables"). \
+The user reads these to review the changeset, so make them clear and specific — \
+never leave the note blank.
+
+WORKING STYLE:
+- Prefer many small, single-purpose actions over bundling.
+- Keep the user informed: describe what you're staging, use `show_changeset` when \
+it helps them review, and once tests pass tell them it's ready for them to apply.
+- Think in terms of the end state the user wants, then express it as an ordered \
+list of actions that builds it."""
+
+
 def run_agent_stream(
     *,
     conversation: Conversation,
@@ -229,8 +321,15 @@ def run_agent_stream(
         user_message=user_message.to_dict(),
     )
 
+    from datapro_ai.staging.changeset_store import ChangesetStore
+
     tool_ctx = ToolContext(
-        core_url=cfg.core_url, cancel_event=cancel_event, view=view_context
+        core_url=cfg.core_url,
+        cancel_event=cancel_event,
+        view=view_context,
+        # The agent's only write path: it appends actions here and builds/tests/
+        # applies a staging env from them — it never mutates Core/prod directly.
+        changeset_store=ChangesetStore(session, conversation),
     )
     iterations = 0
     final_stop_reason = "unknown"
@@ -265,7 +364,7 @@ def run_agent_stream(
             # knows WHERE they are without spending a tool call. Details stay
             # behind get_current_view / read_observation to protect the context
             # window. Rebuilt each turn since the user may have navigated.
-            system_parts: list[str] = []
+            system_parts: list[str] = [STAGING_SYSTEM_PROMPT]
             if conversation.system_prompt:
                 system_parts.append(conversation.system_prompt)
             view_hint = view_context.system_hint() if view_context is not None else None
@@ -598,22 +697,13 @@ def _generate_title(
 
 
 def default_tools() -> ToolRegistry:
-    from datapro_ai.llm.tools.add_object_factory_column import AddObjectFactoryColumnTool
-    from datapro_ai.llm.tools.add_trait_to_object_type import AddTraitToObjectTypeTool
-    from datapro_ai.llm.tools.create_catalog import CreateCatalogTool
-    from datapro_ai.llm.tools.create_flex_catalog import CreateFlexCatalogTool
-    from datapro_ai.llm.tools.create_object_factory import CreateObjectFactoryTool
-    from datapro_ai.llm.tools.create_object_type import CreateObjectTypeTool
-    from datapro_ai.llm.tools.delete_object_factory import DeleteObjectFactoryTool
-    from datapro_ai.llm.tools.delete_object_type import DeleteObjectTypeTool
-    from datapro_ai.llm.tools.get_catalog import GetCatalogTool
+    # READ tools (all against production — the agent inspects, then stages).
     from datapro_ai.llm.tools.get_current_view import GetCurrentViewTool
     from datapro_ai.llm.tools.read_observation import ReadObservationTool
+    from datapro_ai.llm.tools.get_catalog import GetCatalogTool
     from datapro_ai.llm.tools.get_data_source import GetDataSourceTool
     from datapro_ai.llm.tools.get_flex_contract import GetFlexContractTool
-    from datapro_ai.llm.tools.get_data_source_columns import (
-        GetDataSourceColumnsTool,
-    )
+    from datapro_ai.llm.tools.get_data_source_columns import GetDataSourceColumnsTool
     from datapro_ai.llm.tools.get_object_factory import GetObjectFactoryTool
     from datapro_ai.llm.tools.get_object_type import GetObjectTypeTool
     from datapro_ai.llm.tools.inspect_table import InspectTableTool
@@ -625,92 +715,44 @@ def default_tools() -> ToolRegistry:
     from datapro_ai.llm.tools.preview_flex_module import PreviewFlexModuleTool
     from datapro_ai.llm.tools.preview_query_plan import PreviewQueryPlanTool
     from datapro_ai.llm.tools.query_objects import QueryObjectsTool
-    from datapro_ai.llm.tools.remove_object_factory_column import (
-        RemoveObjectFactoryColumnTool,
-    )
-    from datapro_ai.llm.tools.remove_trait_from_object_type import (
-        RemoveTraitFromObjectTypeTool,
-    )
-    from datapro_ai.llm.tools.replace_flex_module_lines import (
-        ReplaceFlexModuleLinesTool,
-    )
-    from datapro_ai.llm.tools.replace_in_flex_module import ReplaceInFlexModuleTool
     from datapro_ai.llm.tools.run_bash import RunBashTool
     from datapro_ai.llm.tools.run_raw_trino_query import RunRawTrinoQueryTool
-    from datapro_ai.llm.tools.set_factory_trait_config import (
-        SetFactoryTraitConfigTool,
-    )
-    from datapro_ai.llm.tools.set_flex_module import SetFlexModuleTool
-    from datapro_ai.llm.tools.set_object_factory_description import (
-        SetObjectFactoryDescriptionTool,
-    )
-    from datapro_ai.llm.tools.set_object_factory_use_all_columns import (
-        SetObjectFactoryUseAllColumnsTool,
-    )
     from datapro_ai.llm.tools.view_flex_module import ViewFlexModuleTool
-    from datapro_ai.llm.tools.update_catalog import UpdateCatalogTool
-    from datapro_ai.llm.tools.update_object_factory_column import (
-        UpdateObjectFactoryColumnTool,
-    )
-    from datapro_ai.llm.tools.update_object_type import UpdateObjectTypeTool
+    # WRITE tools: staging changeset only (the agent's sole write path).
+    from datapro_ai.llm.tools.staging_tools import staging_tools
 
     return ToolRegistry(
         [
-            # "See what the user sees" — the live left-panel view + on-screen data.
+            # ---- READ surface (all against PRODUCTION) ---------------------
+            # The agent inspects prod to decide what actions to stage. It never
+            # writes here — its only write path is the staging changeset below.
             GetCurrentViewTool(),
             ReadObservationTool(),
             ListCatalogsTool(),
             GetCatalogTool(),
             InspectTableTool(),
-            CreateCatalogTool(),
-            UpdateCatalogTool(),
             ListObjectTypesTool(),
             GetObjectTypeTool(),
-            CreateObjectTypeTool(),
-            UpdateObjectTypeTool(),
-            DeleteObjectTypeTool(),
-            # Trait management on the object type — the fixed registry
-            # lives in Core, so list_traits is the discovery surface.
             ListTraitsTool(),
-            AddTraitToObjectTypeTool(),
-            RemoveTraitFromObjectTypeTool(),
-            # Data sources are sync-owned (discovered by Core's reconciler),
-            # so the agent only reads them — no create/update/delete.
             ListDataSourcesTool(),
             GetDataSourceTool(),
             GetDataSourceColumnsTool(),
             ListObjectFactoriesTool(),
             GetObjectFactoryTool(),
-            CreateObjectFactoryTool(),
-            # Object-factory mutations are split into focused single-purpose
-            # tools so the model can reason about each action atomically
-            # instead of being tempted to bundle unrelated changes into one
-            # PATCH (which leads to lazy / surprising rewrites).
-            SetObjectFactoryDescriptionTool(),
-            SetObjectFactoryUseAllColumnsTool(),
-            AddObjectFactoryColumnTool(),
-            RemoveObjectFactoryColumnTool(),
-            UpdateObjectFactoryColumnTool(),
-            SetFactoryTraitConfigTool(),
-            DeleteObjectFactoryTool(),
-            # Semantic query layer — runs through the new /query endpoint.
-            # Prefer these over run_raw_trino_query for any object access;
-            # raw SQL is the debugging escape hatch.
+            # Semantic query + raw SQL against PROD (read-only inspection). To
+            # test staged changes, use query_stage / build_and_test_stage.
             PreviewQueryPlanTool(),
             QueryObjectsTool(),
             RunRawTrinoQueryTool(),
-            # Flex catalog authoring surface — the AI's main path to
-            # creating + editing Python-backed Trino catalogs. View
-            # before editing; preview before committing; prefer the
-            # focused substring / line-range edits over set_flex_module
-            # full-overwrites.
+            # Flex read/preview helpers (preview runs in a transient catalog).
             GetFlexContractTool(),
-            CreateFlexCatalogTool(),
             ViewFlexModuleTool(),
-            ReplaceInFlexModuleTool(),
-            ReplaceFlexModuleLinesTool(),
-            SetFlexModuleTool(),
             PreviewFlexModuleTool(),
             RunBashTool(),
+            # ---- WRITE surface: staging changeset only ---------------------
+            # Every mutation is an ACTION appended to the chat's changeset. The
+            # agent builds/tests an ephemeral staging env from it and promotes
+            # atomically — it can never touch production directly.
+            *staging_tools(),
         ]
     )

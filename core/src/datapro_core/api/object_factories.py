@@ -8,12 +8,14 @@ from flask import Blueprint, current_app, jsonify, request
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 
+from datapro_core.api._env import BadEnv, env_from_request
 from datapro_core.factory_validator import validate_object_factory
 from datapro_core.models import DataSource, ObjectFactory, ObjectType
 from datapro_core.schemas import (
     ObjectFactoryCreateRequest,
     ObjectFactoryUpdateRequest,
 )
+from datapro_core.staging.env import factories_in
 from datapro_core.trino_client import TrinoError
 
 bp = Blueprint("object_factories", __name__)
@@ -91,6 +93,34 @@ def _parse_id(raw: str):
         return jsonify({"error": "invalid_id", "id": raw}), 400
 
 
+def _env_factory_shadow(session, env, prod_factory: ObjectFactory) -> ObjectFactory:
+    """This env's copy-on-write shadow of a prod factory, created on first edit.
+    base_id links it to the prod row so the overlay prefers the shadow and
+    promote knows which prod factory it overrides."""
+    existing = (
+        session.query(ObjectFactory)
+        .filter(
+            ObjectFactory.env_id == env, ObjectFactory.base_id == prod_factory.id
+        )
+        .one_or_none()
+    )
+    if existing is not None:
+        return existing
+    shadow = ObjectFactory(
+        env_id=env,
+        base_id=prod_factory.id,
+        data_source_id=prod_factory.data_source_id,
+        object_type_id=prod_factory.object_type_id,
+        description=prod_factory.description,
+        use_all_columns=prod_factory.use_all_columns,
+        column_spec=list(prod_factory.column_spec or []),
+        trait_config=dict(prod_factory.trait_config or {}),
+    )
+    session.add(shadow)
+    session.flush()
+    return shadow
+
+
 @bp.get("/object-factories")
 def list_object_factories():
     """List all object factories. Filters:
@@ -118,16 +148,24 @@ def list_object_factories():
             return jsonify({"error": "invalid_id", "id": source_id_raw}), 400
 
     with _session() as session:
-        q = session.query(ObjectFactory)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        rows = factories_in(session, env)
         if catalog:
-            # Join through data_sources so the UI's "factories under this
-            # catalog" view keeps working transparently.
-            q = q.join(DataSource).where(DataSource.catalog_name == catalog)
+            source_ids = {
+                ds.id
+                for ds in session.query(DataSource).filter(
+                    DataSource.catalog_name == catalog
+                )
+            }
+            rows = [r for r in rows if r.data_source_id in source_ids]
         if source_id_filter is not None:
-            q = q.where(ObjectFactory.data_source_id == source_id_filter)
+            rows = [r for r in rows if r.data_source_id == source_id_filter]
         if type_id_filter is not None:
-            q = q.where(ObjectFactory.object_type_id == type_id_filter)
-        rows = q.order_by(ObjectFactory.created_at).all()
+            rows = [r for r in rows if r.object_type_id == type_id_filter]
+        rows = sorted(rows, key=lambda r: r.created_at)
         return jsonify([r.to_dict() for r in rows])
 
 
@@ -182,6 +220,10 @@ def create_object_factory():
         )
 
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         # Verify both parents exist — DB FK would catch it too but the error
         # there is opaque; explicit 404s tell the user which one is missing.
         data_source = session.get(DataSource, data_source_id)
@@ -216,6 +258,7 @@ def create_object_factory():
                 return err
 
         row = ObjectFactory(
+            env_id=env,
             data_source_id=data_source_id,
             object_type_id=object_type_id,
             description=payload.description,
@@ -282,9 +325,17 @@ def update_object_factory(id_: str):
         )
 
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         row = session.get(ObjectFactory, parsed)
         if row is None:
             return jsonify({"error": "not_found", "id": id_}), 404
+        if env is not None and row.env_id is None:
+            # Copy-on-write: shadow the prod factory into this env, then patch
+            # the shadow. Prod stays untouched until promote.
+            row = _env_factory_shadow(session, env, row)
 
         # Compute the effective post-patch state for column validation.
         # If the result will have use_all_columns=false and a non-empty
@@ -338,9 +389,18 @@ def delete_object_factory(id_: str):
     if isinstance(parsed, tuple):
         return parsed
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         row = session.get(ObjectFactory, parsed)
         if row is None:
             return jsonify({"error": "not_found", "id": id_}), 404
+        if env is not None and row.env_id is None:
+            shadow = _env_factory_shadow(session, env, row)
+            shadow.deleted = True
+            session.commit()
+            return jsonify({"deleted": id_})
         session.delete(row)
         session.commit()
         return jsonify({"deleted": id_})

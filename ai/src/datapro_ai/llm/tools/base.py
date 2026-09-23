@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
+    from datapro_ai.staging.changeset_store import ChangesetStore
     from datapro_ai.view_context import ViewAccessor
 
 
@@ -31,6 +32,10 @@ class ToolContext:
     # agent can "see what the user sees". None when the browser hasn't published
     # a view (API-only client, panel closed).
     view: "ViewAccessor | None" = None
+    # The chat's staging changeset. The agent's ONLY write path: it appends
+    # actions here (never mutates Core/prod directly) and builds/tests/applies a
+    # staging env from them. None for read-only/API contexts without a chat.
+    changeset_store: "ChangesetStore | None" = None
 
 
 @dataclass(frozen=True)

@@ -14,6 +14,7 @@ import {
 } from "@/api/conversations";
 import { AiApiError } from "@/api/ai-client";
 import { fetchHealth } from "@/api/health";
+import { ChangesetPanel } from "@/components/ChangesetPanel";
 import { MessageBlocks } from "@/components/MessageBlocks";
 import { relativeTime } from "@/lib/format";
 
@@ -369,6 +370,12 @@ export function ChatConversation({
         </div>
       </header>
 
+      {/* Body: conversation on the left, staged-changes review as a right-hand
+          column (full-page variant). The two never stack in full view — the
+          changeset gets its own column instead of pushing the composer down. */}
+      <div className="flex min-h-0 flex-1 gap-3">
+      <div className="flex min-w-0 flex-1 flex-col" data-testid="chat-main-column">
+
       <div
         ref={scrollRef}
         className="min-h-0 min-w-0 flex-1 overflow-y-auto px-1 py-4"
@@ -397,6 +404,16 @@ export function ChatConversation({
         )}
         {isStreaming && inProgressBlocks.length === 0 && <PendingTurn />}
       </div>
+
+      {/* Narrow side-panel variant has no room for a column — stack it here. */}
+      {variant === "panel" && (
+        <ChangesetPanel
+          conversationId={conv.id}
+          changeset={conv.changeset}
+          tests={conv.stage_tests}
+          coreDown={coreDown}
+        />
+      )}
 
       {sendError && (
         <div
@@ -489,6 +506,22 @@ export function ChatConversation({
           )}
         </div>
       </div>
+      </div>{/* left column */}
+
+      {variant === "full" && conv.changeset.length > 0 && (
+        <aside
+          className="w-[40rem] max-w-[45%] shrink-0 overflow-y-auto border-l border-zinc-100 pl-3"
+          data-testid="changeset-column"
+        >
+          <ChangesetPanel
+            conversationId={conv.id}
+            changeset={conv.changeset}
+            tests={conv.stage_tests}
+            coreDown={coreDown}
+          />
+        </aside>
+      )}
+      </div>{/* body row */}
     </div>
   );
 }

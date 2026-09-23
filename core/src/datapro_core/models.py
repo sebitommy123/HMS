@@ -7,6 +7,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     String,
     UniqueConstraint,
 )
@@ -14,6 +15,16 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from datapro_core.db import Base
+
+
+class EnvStatus(StrEnum):
+    """A staging environment's lifecycle. ``open`` = live, the AI can build in
+    it. ``promoted`` = its delta was applied to prod and the env retired.
+    ``discarded`` = torn down without promoting."""
+
+    OPEN = "open"
+    PROMOTED = "promoted"
+    DISCARDED = "discarded"
 
 
 class CatalogStatus(StrEnum):
@@ -58,10 +69,80 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# NULL env_id means "production". A row in the ``environments`` table exists
+# only for a live/retired staging overlay. Kept as a module constant so the
+# intent reads clearly at every call site.
+PROD_ENV = None
+
+
+class Environment(Base):
+    """A staging environment — a per-chat overlay over production.
+
+    Production is NOT a row here: prod entities carry ``env_id = NULL``. An
+    Environment row exists only for a live (or retired) staging overlay. The AI
+    never mutates prod directly; it builds an env by replaying its action list
+    as ``?env=<id>`` API calls, tests it, then promotes.
+
+    Catalogs created in an env get a *mangled physical name* (``stg_<hex>_<name>``)
+    so they can coexist with prod and other envs in Trino's single global
+    catalog namespace; ``Catalog.logical_name`` holds the name the user sees.
+    Everything else overlays by ``env_id``: a read scoped to env X sees prod
+    rows (env_id NULL) unless the env shadows them.
+    """
+
+    __tablename__ = "environments"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    # Free-form label (usually the owning conversation id) for humans/debugging.
+    label: Mapped[str] = mapped_column(String, nullable=False, default="")
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, default=EnvStatus.OPEN, server_default=EnvStatus.OPEN
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": str(self.id),
+            "label": self.label,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class Catalog(Base):
     __tablename__ = "catalogs"
+    # (env_id, logical_name) is unique *including* prod rows: NULLS NOT DISTINCT
+    # makes two prod rows with the same logical_name collide, so prod keeps its
+    # global name uniqueness while each env gets its own logical namespace.
+    __table_args__ = (
+        Index(
+            "uq_catalogs_env_logical",
+            "env_id",
+            "logical_name",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
 
+    # PHYSICAL name — globally unique across prod + all envs, and the exact
+    # string registered in Trino. Prod: == logical_name. Env: stg_<hex>_<logical>.
     name: Mapped[str] = mapped_column(String, primary_key=True)
+    # The name the user/agent sees. Prod: == name.
+    logical_name: Mapped[str] = mapped_column(String, nullable=False)
+    env_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    # Tombstone: an env row with deleted=True (and env_id set) shadow-deletes a
+    # prod entity within that env. Overlay reads hide it; promote drops the prod
+    # row. Always False for prod rows.
+    deleted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     connector: Mapped[str] = mapped_column(String, nullable=False)
     properties: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String, nullable=False, default=CatalogStatus.ENABLED)
@@ -73,7 +154,10 @@ class Catalog(Base):
 
     def to_dict(self) -> dict:
         return {
-            "name": self.name,
+            # ``name`` is the physical name; the user-facing name is logical.
+            "name": self.logical_name,
+            "physical_name": self.name,
+            "env_id": str(self.env_id) if self.env_id else None,
             "connector": self.connector,
             "properties": self.properties,
             "status": self.status,
@@ -93,13 +177,24 @@ class ObjectTypeTrait(Base):
 
     __tablename__ = "object_type_traits"
     __table_args__ = (
-        UniqueConstraint(
-            "object_type_id", "trait_name", name="uq_object_type_traits_pair"
+        Index(
+            "uq_object_type_traits_pair",
+            "env_id",
+            "object_type_id",
+            "trait_name",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    env_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
     )
     object_type_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -121,11 +216,37 @@ class ObjectType(Base):
     """
 
     __tablename__ = "object_types"
+    __table_args__ = (
+        Index(
+            "uq_object_types_env_name",
+            "env_id",
+            "name",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    name: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    env_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    # When this row is an env's *shadow* of a prod type (created because the env
+    # needed to change the type's traits/description), ``base_id`` points at the
+    # prod row it shadows. The planner treats {this.id, base_id} as the same
+    # logical type so prod factories still attach. NULL for prod rows and for
+    # env-native types.
+    base_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    deleted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    name: Mapped[str] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(String, nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     updated_at: Mapped[datetime] = mapped_column(
@@ -146,6 +267,7 @@ class ObjectType(Base):
     def to_dict(self) -> dict:
         return {
             "id": str(self.id),
+            "env_id": str(self.env_id) if self.env_id else None,
             "name": self.name,
             "description": self.description,
             "traits": self.trait_names,
@@ -257,15 +379,33 @@ class ObjectFactory(Base):
 
     __tablename__ = "object_factories"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_object_factories_source_type",
+            "env_id",
             "data_source_id",
             "object_type_id",
-            name="uq_object_factories_source_type",
+            unique=True,
+            postgresql_nulls_not_distinct=True,
         ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    env_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("environments.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    # Shadow linkage, mirroring ObjectType.base_id: when an env edits a prod
+    # factory it creates a shadow row (env_id set) whose base_id is the prod
+    # factory it overrides. The planner prefers the shadow. NULL otherwise.
+    base_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    deleted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
     data_source_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -326,6 +466,7 @@ class ObjectFactory(Base):
         ds = self.data_source
         return {
             "id": str(self.id),
+            "env_id": str(self.env_id) if self.env_id else None,
             "data_source_id": str(self.data_source_id),
             "catalog_name": ds.catalog_name if ds else None,
             "schema_name": ds.schema_name if ds else None,

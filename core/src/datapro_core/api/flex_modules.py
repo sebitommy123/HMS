@@ -24,6 +24,7 @@ from flask import Blueprint, current_app, jsonify, request
 from pydantic import ValidationError
 
 from datapro_core import flex_module_materializer as materializer
+from datapro_core.api._env import BadEnv, env_from_request
 from datapro_core.models import FlexModule
 from datapro_core.schemas import (
     FlexModulePreviewRequest,
@@ -31,6 +32,7 @@ from datapro_core.schemas import (
     FlexModuleReplaceRequest,
     FlexModuleUpdateRequest,
 )
+from datapro_core.staging.env import resolve_catalog
 from datapro_core.trino_client import TrinoError
 
 
@@ -47,6 +49,35 @@ def _trino():
 
 def _config():
     return current_app.config["DATAPRO"]
+
+
+def _physical_or_error(session, name: str):
+    """Resolve a logical flex catalog name to its physical name within the
+    request's env overlay. Returns ``(physical_name, None)`` on success or
+    ``(None, (response, status))`` on error. Editing a prod flex module from
+    inside an env is rejected — env flex catalogs are always env-created."""
+    try:
+        env = env_from_request(session)
+    except BadEnv as exc:
+        return None, (jsonify({"error": "bad_env", "details": exc.message}), 400)
+    catalog = resolve_catalog(session, env, name)
+    if catalog is None:
+        return None, (jsonify({"error": "not_found", "catalog_name": name}), 404)
+    if env is not None and catalog.env_id != env:
+        return None, (
+            jsonify(
+                {
+                    "error": "prod_catalog_immutable_in_env",
+                    "details": (
+                        "This flex catalog belongs to production; it can't be "
+                        "edited from a staging env. Create an env-local flex "
+                        "catalog instead."
+                    ),
+                }
+            ),
+            409,
+        )
+    return catalog.name, None
 
 
 def _validate_python(source: str) -> tuple[bool, str | None]:
@@ -80,7 +111,10 @@ def _validation_error_response(exc: ValidationError):
 @bp.get("/flex-modules/<name>")
 def get_module(name: str):
     with _session() as session:
-        row = session.query(FlexModule).where(FlexModule.catalog_name == name).one_or_none()
+        physical, err = _physical_or_error(session, name)
+        if err:
+            return err
+        row = session.query(FlexModule).where(FlexModule.catalog_name == physical).one_or_none()
         if row is None:
             return jsonify({"error": "not_found", "catalog_name": name}), 404
         return jsonify(row.to_dict())
@@ -97,7 +131,11 @@ def replace_module(name: str):
         return _validation_error_response(exc)
     except Exception as exc:
         return jsonify({"error": "invalid_json", "details": str(exc)}), 400
-    return _persist_source(name, payload.source)
+    with _session() as session:
+        physical, err = _physical_or_error(session, name)
+        if err:
+            return err
+    return _persist_source(physical, payload.source)
 
 
 @bp.post("/flex-modules/<name>/replace")
@@ -110,7 +148,10 @@ def replace_substring(name: str):
         return jsonify({"error": "invalid_json", "details": str(exc)}), 400
 
     with _session() as session:
-        row = session.query(FlexModule).where(FlexModule.catalog_name == name).one_or_none()
+        physical, err = _physical_or_error(session, name)
+        if err:
+            return err
+        row = session.query(FlexModule).where(FlexModule.catalog_name == physical).one_or_none()
         if row is None:
             return jsonify({"error": "not_found", "catalog_name": name}), 404
         source = row.source_text
@@ -146,7 +187,7 @@ def replace_substring(name: str):
                 400,
             )
     new_source = source.replace(payload.old_text, payload.new_text, 1)
-    return _persist_source(name, new_source)
+    return _persist_source(physical, new_source)
 
 
 @bp.post("/flex-modules/<name>/replace-lines")
@@ -170,7 +211,10 @@ def replace_lines(name: str):
         )
 
     with _session() as session:
-        row = session.query(FlexModule).where(FlexModule.catalog_name == name).one_or_none()
+        physical, err = _physical_or_error(session, name)
+        if err:
+            return err
+        row = session.query(FlexModule).where(FlexModule.catalog_name == physical).one_or_none()
         if row is None:
             return jsonify({"error": "not_found", "catalog_name": name}), 404
         source = row.source_text
@@ -204,7 +248,7 @@ def replace_lines(name: str):
         + [new_text]
         + lines[payload.end_line :]
     )
-    return _persist_source(name, "".join(new_lines))
+    return _persist_source(physical, "".join(new_lines))
 
 
 def _persist_source(catalog_name: str, source: str):

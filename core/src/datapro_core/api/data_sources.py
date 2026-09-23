@@ -11,7 +11,9 @@ import uuid
 
 from flask import Blueprint, current_app, jsonify, request
 
+from datapro_core.api._env import BadEnv, env_from_request
 from datapro_core.models import DataSource
+from datapro_core.staging.env import data_sources_in, resolve_catalog
 from datapro_core.trino_client import TrinoError
 
 bp = Blueprint("data_sources", __name__)
@@ -34,15 +36,23 @@ def _parse_id(raw: str):
 
 @bp.get("/data-sources")
 def list_data_sources():
-    """List data sources. Optional ``?catalog=<name>`` filter."""
+    """List data sources visible in the (optional) env overlay. ``?catalog=``
+    filters by *logical* catalog name (resolved to physical within the env)."""
     catalog = (request.args.get("catalog") or "").strip()
     with _session() as session:
-        q = session.query(DataSource)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        rows = data_sources_in(session, env)
         if catalog:
-            q = q.where(DataSource.catalog_name == catalog)
-        rows = q.order_by(
-            DataSource.catalog_name, DataSource.schema_name, DataSource.table_name
-        ).all()
+            resolved = resolve_catalog(session, env, catalog)
+            physical = resolved.name if resolved is not None else catalog
+            rows = [r for r in rows if r.catalog_name == physical]
+        rows = sorted(
+            rows,
+            key=lambda r: (r.catalog_name, r.schema_name, r.table_name),
+        )
         return jsonify([r.to_dict() for r in rows])
 
 

@@ -168,6 +168,7 @@ def _insert_catalog_and_source(core_app, catalog_name, status, schema, table, ds
         s.add(
             Catalog(
                 name=catalog_name,
+                logical_name=catalog_name,
                 connector="postgresql",
                 properties={},
                 status=status,

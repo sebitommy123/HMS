@@ -30,7 +30,13 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <trino.version>483</trino.version>
         <arrow.version>18.1.0</arrow.version>
-        <jackson.version>2.18.2</jackson.version>
+        <!-- MUST match the Jackson the runtime Trino ships (see /usr/lib/trino/lib).
+             Trino 483 uses 2.22.1 and registers the blackbird deserialization
+             module; if the plugin bundles a different databind, blackbird's
+             optimizer classes fail to resolve in the plugin's isolated
+             classloader (NoClassDefFoundError CreatorOptimizer) at scan time.
+             Bump this together with the Trino version. -->
+        <jackson.version>2.22.1</jackson.version>
     </properties>
 
     <dependencies>
@@ -71,6 +77,17 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
+        </dependency>
+        <!-- Trino 483 registers the blackbird module on its ObjectMapper. When
+             it deserializes THIS plugin's ConnectorSplit/handles it does so with
+             the plugin classloader as TCCL, so blackbird's optimizer classes
+             must be resolvable there. Bundle blackbird (same version as Trino)
+             so scan-time deserialization doesn't NoClassDefFoundError. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-blackbird</artifactId>
+            <version>${jackson.version}</version>
+            <scope>runtime</scope>
         </dependency>
     </dependencies>
 

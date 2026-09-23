@@ -7,6 +7,7 @@ from flask_cors import CORS
 
 from datapro_core.api import catalogs as catalogs_api
 from datapro_core.api import data_sources as data_sources_api
+from datapro_core.api import environments as environments_api
 from datapro_core.api import flex_modules as flex_modules_api
 from datapro_core.api import object_factories as object_factories_api
 from datapro_core.api import object_types as object_types_api
@@ -58,6 +59,7 @@ def create_app(
         )
 
     app.register_blueprint(catalogs_api.bp)
+    app.register_blueprint(environments_api.bp)
     app.register_blueprint(object_types_api.bp)
     app.register_blueprint(data_sources_api.bp)
     app.register_blueprint(object_factories_api.bp)

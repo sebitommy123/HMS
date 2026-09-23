@@ -13,9 +13,11 @@ from pydantic import ValidationError
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 
+from datapro_core.api._env import BadEnv, env_from_request
 from datapro_core.factory_validator import validate_object_factory
 from datapro_core.models import ObjectFactory, ObjectType, ObjectTypeTrait
 from datapro_core.schemas import ObjectTypeCreateRequest, ObjectTypeUpdateRequest
+from datapro_core.staging.env import object_types_in, resolve_object_type
 from datapro_core.traits import known_trait_names
 from datapro_core.trino_client import TrinoError
 
@@ -30,6 +32,35 @@ def _trino():
     return current_app.extensions["trino"]
 
 
+def _env_type_shadow(session, env, prod_type: ObjectType) -> ObjectType:
+    """Return this env's copy-on-write shadow of a prod object type, creating it
+    (and copying the prod type's traits into it) if it doesn't exist yet. Used
+    when an env needs to change a prod type's traits/name without touching prod.
+    The shadow is self-contained: it carries its own trait rows so overlay reads
+    never have to merge across the prod/env boundary."""
+    existing = (
+        session.query(ObjectType)
+        .filter(ObjectType.env_id == env, ObjectType.name == prod_type.name)
+        .one_or_none()
+    )
+    if existing is not None:
+        return existing
+    shadow = ObjectType(
+        env_id=env,
+        base_id=prod_type.id,
+        name=prod_type.name,
+        description=prod_type.description,
+    )
+    session.add(shadow)
+    session.flush()
+    for t in prod_type.trait_names:
+        session.add(
+            ObjectTypeTrait(env_id=env, object_type_id=shadow.id, trait_name=t)
+        )
+    session.flush()
+    return shadow
+
+
 def _parse_id(raw: str):
     """Return a UUID or a (response, status) tuple if invalid."""
     try:
@@ -42,18 +73,20 @@ def _parse_id(raw: str):
 def list_object_types():
     """List object types. Optional ``?search=foo`` filters case-insensitively on
     name + description."""
-    search = (request.args.get("search") or "").strip()
+    search = (request.args.get("search") or "").strip().lower()
     with _session() as session:
-        q = session.query(ObjectType)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        rows = object_types_in(session, env)
         if search:
-            pattern = f"%{search.lower()}%"
-            q = q.where(
-                or_(
-                    ObjectType.name.ilike(pattern),
-                    ObjectType.description.ilike(pattern),
-                )
-            )
-        rows = q.order_by(ObjectType.name).all()
+            rows = [
+                r
+                for r in rows
+                if search in r.name.lower() or search in (r.description or "").lower()
+            ]
+        rows = sorted(rows, key=lambda r: r.name)
         return jsonify([r.to_dict() for r in rows])
 
 
@@ -79,7 +112,15 @@ def create_object_type():
         return jsonify({"error": "invalid_json", "details": str(exc)}), 400
 
     with _session() as session:
-        row = ObjectType(name=payload.name, description=payload.description)
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
+        # Reject if the logical name already exists in this env's overlay
+        # (a prod type of the same name counts — the env would shadow it).
+        if resolve_object_type(session, env, payload.name) is not None:
+            return jsonify({"error": "already_exists", "name": payload.name}), 409
+        row = ObjectType(env_id=env, name=payload.name, description=payload.description)
         session.add(row)
         try:
             session.commit()
@@ -116,9 +157,15 @@ def update_object_type(id_: str):
         )
 
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         row = session.get(ObjectType, parsed)
         if row is None:
             return jsonify({"error": "not_found", "id": id_}), 404
+        if env is not None and row.env_id is None:
+            row = _env_type_shadow(session, env, row)
         if payload.name is not None:
             row.name = payload.name
         if payload.description is not None:
@@ -140,9 +187,19 @@ def delete_object_type(id_: str):
     if isinstance(parsed, tuple):
         return parsed
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         row = session.get(ObjectType, parsed)
         if row is None:
             return jsonify({"error": "not_found", "id": id_}), 404
+        if env is not None and row.env_id is None:
+            # Tombstone: env-local deleted shadow, prod untouched until promote.
+            shadow = _env_type_shadow(session, env, row)
+            shadow.deleted = True
+            session.commit()
+            return jsonify({"deleted": id_})
         session.delete(row)
         session.commit()
         return jsonify({"deleted": id_})
@@ -170,13 +227,22 @@ def add_object_type_trait(id_: str, trait_name: str):
         )
 
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         otype = session.get(ObjectType, parsed)
         if otype is None:
             return jsonify({"error": "not_found", "id": id_}), 404
+        # Changing a prod type from inside an env copies-on-write to a shadow.
+        if env is not None and otype.env_id is None:
+            otype = _env_type_shadow(session, env, otype)
+        elif env is None and otype.env_id is not None:
+            return jsonify({"error": "env_row_in_prod_scope", "id": id_}), 409
         if trait_name in otype.trait_names:
             return jsonify(otype.to_dict())  # already present, no-op
         session.add(
-            ObjectTypeTrait(object_type_id=otype.id, trait_name=trait_name)
+            ObjectTypeTrait(env_id=env, object_type_id=otype.id, trait_name=trait_name)
         )
         try:
             session.commit()
@@ -199,9 +265,15 @@ def remove_object_type_trait(id_: str, trait_name: str):
     if isinstance(parsed, tuple):
         return parsed
     with _session() as session:
+        try:
+            env = env_from_request(session)
+        except BadEnv as exc:
+            return jsonify({"error": "bad_env", "details": exc.message}), 400
         otype = session.get(ObjectType, parsed)
         if otype is None:
             return jsonify({"error": "not_found", "id": id_}), 404
+        if env is not None and otype.env_id is None:
+            otype = _env_type_shadow(session, env, otype)
         row = (
             session.query(ObjectTypeTrait)
             .where(

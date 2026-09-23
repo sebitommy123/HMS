@@ -2,6 +2,7 @@ import anthropic
 from flask import Flask
 from flask_cors import CORS
 
+from datapro_ai.api import changeset as changeset_api
 from datapro_ai.api import conversations as conversations_api
 from datapro_ai.api import health as health_api
 from datapro_ai.api import messages as messages_api
@@ -39,6 +40,7 @@ def create_app(config: Config | None = None) -> Flask:
 
     app.register_blueprint(health_api.bp)
     app.register_blueprint(conversations_api.bp)
+    app.register_blueprint(changeset_api.bp)
     app.register_blueprint(messages_api.bp)
 
     return app

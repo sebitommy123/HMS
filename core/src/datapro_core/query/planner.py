@@ -6,10 +6,11 @@ SQL string is built last, so /preview-query-plan can show the user exactly
 what would run.
 """
 
+import uuid
+
 from sqlalchemy.orm import Session
 
 from datapro_core.factory_validator import validate_object_factory
-from datapro_core.models import ObjectFactory, ObjectType
 from datapro_core.query.models import (
     FactoryPlan,
     Query,
@@ -17,6 +18,7 @@ from datapro_core.query.models import (
     SkippedFactory,
 )
 from datapro_core.query.sql_builder import build_sql
+from datapro_core.staging.env import factories_for_type, resolve_object_type
 from datapro_core.trino_client import TrinoClient
 
 
@@ -36,27 +38,26 @@ def build_plan(
     session: Session,
     trino: TrinoClient,
     live_catalogs: set[str],
+    env: uuid.UUID | None = None,
 ) -> QueryPlan:
     """Resolve the ObjectType, find its factories, drop unreachable ones,
     emit the SQL. ``live_catalogs`` is the set of catalog names Trino
     currently knows about (passed in so this function stays
-    pure-of-network-IO and easy to test)."""
-    object_type = (
-        session.query(ObjectType)
-        .where(ObjectType.name == query.from_type)
-        .one_or_none()
-    )
+    pure-of-network-IO and easy to test).
+
+    ``env`` scopes resolution to a staging overlay: the object type, its
+    factories, and their (physical-named) catalogs are all resolved as they
+    appear inside that env. ``None`` = production."""
+    object_type = resolve_object_type(session, env, query.from_type)
     if object_type is None:
         raise PlanError(
             "object_type_not_found",
             f"No object type named {query.from_type!r}.",
         )
 
-    factory_rows = (
-        session.query(ObjectFactory)
-        .where(ObjectFactory.object_type_id == object_type.id)
-        .order_by(ObjectFactory.created_at)
-        .all()
+    factory_rows = sorted(
+        factories_for_type(session, env, query.from_type),
+        key=lambda f: f.created_at,
     )
 
     factories: list[FactoryPlan] = []

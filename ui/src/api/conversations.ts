@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { aiApi } from "@/api/ai-client";
+import { StagedAction, StageTest } from "@/api/changeset";
 
 // ---- Content blocks ---------------------------------------------------------
 //
@@ -63,6 +64,10 @@ export const Conversation = z.object({
   title: z.string(),
   model: z.string(),
   system_prompt: z.string().nullable(),
+  // The chat's staging changeset + saved acceptance tests (the only durable
+  // artifacts the agent authors). Defaulted so older payloads still parse.
+  changeset: z.array(StagedAction).default([]),
+  stage_tests: z.array(StageTest).default([]),
   created_at: z.string(),
   updated_at: z.string(),
 });
